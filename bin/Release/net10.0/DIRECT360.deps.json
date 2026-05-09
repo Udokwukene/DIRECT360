@@ -1,0 +1,75 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "DIRECT360/1.0.0": {
+        "dependencies": {
+          "Nefarius.ViGEm.Client": "1.17.178",
+          "SharpDX.DirectInput": "4.2.0"
+        },
+        "runtime": {
+          "DIRECT360.dll": {}
+        }
+      },
+      "Nefarius.ViGEm.Client/1.17.178": {
+        "runtime": {
+          "lib/netcoreapp2.2/Nefarius.ViGEm.Client.dll": {
+            "assemblyVersion": "1.17.178.0",
+            "fileVersion": "1.17.178.0"
+          }
+        }
+      },
+      "SharpDX/4.2.0": {
+        "runtime": {
+          "lib/netstandard1.1/SharpDX.dll": {
+            "assemblyVersion": "4.2.0.0",
+            "fileVersion": "4.2.0.0"
+          }
+        }
+      },
+      "SharpDX.DirectInput/4.2.0": {
+        "dependencies": {
+          "SharpDX": "4.2.0"
+        },
+        "runtime": {
+          "lib/netstandard1.3/SharpDX.DirectInput.dll": {
+            "assemblyVersion": "4.2.0.0",
+            "fileVersion": "4.2.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "DIRECT360/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Nefarius.ViGEm.Client/1.17.178": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-EL5h22+Z9NU38bkphADpQy5QZvCZ+aD0ucg+6rpVY3ypg7Z9YH4VQGiStQVj9kAj7NFlO9WctpY9DyS3/aOB2w==",
+      "path": "nefarius.vigem.client/1.17.178",
+      "hashPath": "nefarius.vigem.client.1.17.178.nupkg.sha512"
+    },
+    "SharpDX/4.2.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-3pv0LFMvfK/dv1qISJnn8xBeeT6R/FRvr0EV4KI2DGsL84Qlv6P7isWqxGyU0LCwlSVCJN3jgHJ4Bl0KI2PJww==",
+      "path": "sharpdx/4.2.0",
+      "hashPath": "sharpdx.4.2.0.nupkg.sha512"
+    },
+    "SharpDX.DirectInput/4.2.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-is6Lm9zULyeTbUaLXktF+MwzmUYE8jofhA+6qgR1HBIyRJ/c2rZbeG1VvvGf4w6ktfq/q3AvUWTNzwgdU/+XOg==",
+      "path": "sharpdx.directinput/4.2.0",
+      "hashPath": "sharpdx.directinput.4.2.0.nupkg.sha512"
+    }
+  }
+}

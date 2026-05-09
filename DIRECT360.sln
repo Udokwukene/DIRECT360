@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DIRECT360", "DIRECT360.csproj", "{18015D02-6ADB-99F1-6444-9B57197303C0}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{18015D02-6ADB-99F1-6444-9B57197303C0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{18015D02-6ADB-99F1-6444-9B57197303C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{18015D02-6ADB-99F1-6444-9B57197303C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{18015D02-6ADB-99F1-6444-9B57197303C0}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {4D82DF68-7737-4632-8D13-F35244A89DD1}
+	EndGlobalSection
+EndGlobal
