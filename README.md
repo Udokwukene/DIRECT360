@@ -18,7 +18,7 @@
 
 **DIRECT360** is a lightweight, console-based controller remapper for Windows that converts virtually any DirectInput gamepad into a virtual **Xbox 360 controller** — the standard that nearly every PC game supports out of the box.
 
-Whether you have a cheap generic USB joystick, a PlayStation 3/4/5 controller, or an old flight stick, DIRECT360 makes it work with your games without touching a single config file.
+Whether you have a cheap generic USB joystick, a PlayStation 3/4/5 controller, DIRECT360 makes it work with your games without touching a single config file.
 
 ---
 
