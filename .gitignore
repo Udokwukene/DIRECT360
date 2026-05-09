@@ -1,0 +1,16 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# User data - don't share your personal configs
+profiles/
+crash.log
+
+# OS junk
+Thumbs.db
+Desktop.ini
