@@ -1,5 +1,5 @@
 ﻿// DIRECT360 – Universal Controller Remapper  (C# Edition)
-// Supports: Xbox, PS3, PS4, PS5 (wired + wireless via BT/USB)
+// Supports: Xbox (wired + wireless via USB)
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -32,11 +32,7 @@ static class App
     // Exposed so the crash handler can call timeEndPeriod if needed
     public static PollMode PollModeAtCrash = PollMode.Balanced;
 
-    // Known PS controller VendorIDs (Sony = 0x054C)
-    static readonly HashSet<ushort> SonyVids = new() { 0x054C };
 
-    // PS controller ProductIDs
-    static readonly HashSet<ushort> SonyPids = new() { 0x0268, 0x05C4, 0x09CC, 0x0CE6, 0x0DF2 };
 
     static readonly string[] VirtualKeywords =
         { "xbox 360 for windows", "xinput", "vigem", "virtual", "x360" };
@@ -71,7 +67,7 @@ static class App
     static readonly object _diPollLock = new();
 
     record PadInfo(Joystick Pad, string ProfileName, string DisplayName, int Slot,
-                   Guid InstanceGuid, bool IsPlayStation);
+                   Guid InstanceGuid);
 
     public static void Run()
     {
@@ -91,10 +87,8 @@ static class App
             var pads = GetAllRealPads();
             if (_stop) break;
 
-            if (pads.Count == 1)
+            if (pads.Count >= 1)
                 RunSingleController(pads[0]);
-            else
-                RunMultiController(pads);
         }
 
         if (_settings.PollMode == PollMode.Performance)
@@ -108,11 +102,10 @@ static class App
     {
         try { Console.Clear(); } catch { }
         Console.WriteLine("  " + new string('=', 43));
-        Console.WriteLine("              DIRECT360");
-        Console.WriteLine("      Universal Controller Remapper");
-        Console.WriteLine("   Xbox / PS3 / PS4 / PS5  |  Wired & BT");
+        Console.WriteLine(CenterText("DIRECT360"));
+        Console.WriteLine(CenterText("Xbox Controller Remapper"));
         Console.WriteLine("  " + new string('=', 43));
-        Console.WriteLine($"  Mode: {_settings.PollMode}  |  Poll: ~{PollHz(_settings.PollMode)}Hz");
+        Console.WriteLine($"  Poll: ~{PollHz(_settings.PollMode)}Hz [{_settings.PollMode}]");
         Console.WriteLine();
     }
 
@@ -135,13 +128,7 @@ static class App
         return VirtualKeywords.Any(k => lower.Contains(k));
     }
 
-    static bool IsPlayStation(DeviceInstance d)
-    {
-        byte[] bytes = d.ProductGuid.ToByteArray();
-        ushort vid = (ushort)(bytes[1] << 8 | bytes[0]);
-        ushort pid = (ushort)(bytes[3] << 8 | bytes[2]);
-        return SonyVids.Contains(vid) && SonyPids.Contains(pid);
-    }
+
 
     static readonly List<DirectInput> _activeDiInstances = new();
 
@@ -192,9 +179,8 @@ static class App
                     string profileName = nameCounts[baseName] > 1
                         ? $"{baseName}_{info.InstanceGuid.ToString("N")[..8]}" : baseName;
 
-                    bool isPS = IsPlayStation(info);
                     result.Add(new PadInfo(joy, profileName, displayName, result.Count + 1,
-                                           info.InstanceGuid, isPS));
+                                           info.InstanceGuid));
                 }
             }
 
@@ -206,7 +192,7 @@ static class App
                 string plural = result.Count == 1 ? "controller" : "controllers";
                 Console.WriteLine($"  {result.Count} {plural} detected.");
                 foreach (var p in result)
-                    Console.WriteLine($"  Slot {p.Slot} : {p.DisplayName}{(p.IsPlayStation ? "  [PS]" : "")}");
+                    Console.WriteLine($"  Slot {p.Slot} : {p.DisplayName}");
                 Console.WriteLine();
                 return result;
             }
@@ -225,7 +211,7 @@ static class App
     {
         while (!_stop)
         {
-            var profile = SelectLayout(padInfo.Pad, padInfo.ProfileName, padInfo.IsPlayStation);
+            var profile = SelectLayout(padInfo.Pad, padInfo.ProfileName);
             if (profile == null || _stop) break;
 
             Console.WriteLine();
@@ -240,7 +226,7 @@ static class App
             Console.WriteLine();
 
             using var cts = new CancellationTokenSource();
-            string result = RunRemapperCore(padInfo.Pad, profile, null, cts, isSingle: true);
+            string result = RunRemapperCore(padInfo.Pad, profile, null, cts);
 
             if (result == "exit" || _stop) break;
 
@@ -250,7 +236,7 @@ static class App
                 Console.WriteLine("  Press Enter to go to menu instead.");
 
                 bool ok = WaitForReconnect(padInfo.InstanceGuid, padInfo.ProfileName,
-                    padInfo.DisplayName, padInfo.IsPlayStation, out PadInfo? newPad);
+                    padInfo.DisplayName, out PadInfo? newPad);
 
                 // Dispose old joystick to free the device handle
                 try { padInfo.Pad.Dispose(); } catch { }
@@ -265,7 +251,7 @@ static class App
     }
 
     static bool WaitForReconnect(Guid targetGuid, string profileName, string displayName,
-        bool isPS, out PadInfo? reconnected)
+        out PadInfo? reconnected)
     {
         reconnected = null;
 
@@ -303,7 +289,7 @@ static class App
 
                 DisposeActiveDi();
                 _activeDiInstances.Add(di);
-                reconnected = new PadInfo(joy, profileName, displayName, 1, targetGuid, isPS);
+                reconnected = new PadInfo(joy, profileName, displayName, 1, targetGuid);
 
                 // Unblock the abort ReadLine thread by sending a newline to stdin.
                 // This is the cleanest way to wake a blocked Console.ReadLine on Windows.
@@ -316,142 +302,15 @@ static class App
         return false;
     }
 
-    // ---------------------------------------------------------------------------
-    // MULTI-CONTROLLER FLOW
-    // ---------------------------------------------------------------------------
-    static void RunMultiController(List<PadInfo> pads)
-    {
-        var selected = SelectControllers(pads);
-        if (selected.Count == 0 || _stop) return;
-        if (selected.Count == 1) { RunSingleController(selected[0]); return; }
 
-        bool allHaveLastUsed = selected.All(p => {
-            string? last = LoadLastUsed(p.ProfileName);
-            return last != null && ListProfiles(p.ProfileName).Contains(last);
-        });
-
-        if (allHaveLastUsed)
-        {
-            Console.WriteLine();
-            Console.WriteLine("  All controllers have a previously used layout.");
-            Console.Write("  [L] Quick load all last used  |  [Enter] Choose manually: ");
-            if ((Console.ReadLine()?.Trim() ?? "").ToLower() == "l")
-            {
-                var assignments = new List<(PadInfo Pad, Profile Profile)>();
-                foreach (var pad in selected)
-                {
-                    string last    = LoadLastUsed(pad.ProfileName)!;
-                    var    profile = LoadProfile(pad.ProfileName, last);
-                    if (profile == null) { Console.WriteLine($"  Could not load '{last}' for {pad.DisplayName}."); return; }
-                    assignments.Add((pad, profile));
-                }
-                ShowRunningScreen(assignments);
-                RunAllRemappers(assignments);
-                return;
-            }
-        }
-
-        var manual = new List<(PadInfo Pad, Profile Profile)>();
-        for (int i = 0; i < selected.Count && !_stop; i++)
-        {
-            var pad = selected[i];
-            Console.WriteLine();
-            Console.WriteLine("  " + new string('=', 43));
-            Console.WriteLine($"  PLAYER {pad.Slot} SETUP  --  {pad.DisplayName}");
-            Console.WriteLine("  " + new string('=', 43));
-            var profile = SelectLayout(pad.Pad, pad.ProfileName, pad.IsPlayStation);
-            if (profile == null || _stop) return;
-            manual.Add((pad, profile));
-        }
-
-        if (_stop || manual.Count == 0) return;
-        ShowRunningScreen(manual);
-        RunAllRemappers(manual);
-    }
-
-    static void ShowRunningScreen(List<(PadInfo Pad, Profile Profile)> assignments)
-    {
-        Console.WriteLine();
-        Console.WriteLine("  " + new string('=', 43));
-        Console.WriteLine("  DIRECT360 is now running.");
-        Console.WriteLine("  " + new string('=', 43));
-        foreach (var (pad, profile) in assignments)
-            Console.WriteLine($"  P{pad.Slot}: {pad.DisplayName,-24} -> {profile.LayoutName}  ({SensitivityLabel(profile.AntiDeadzone)} {profile.AntiDeadzone})");
-        Console.WriteLine("  " + new string('=', 43));
-        Console.WriteLine("  M = Back to Menu  |  Ctrl+C = Exit");
-        Console.WriteLine();
-    }
-
-    static List<PadInfo> SelectControllers(List<PadInfo> available)
-    {
-        Console.WriteLine("  " + new string('=', 43));
-        Console.WriteLine($"  {available.Count} CONTROLLERS DETECTED");
-        Console.WriteLine("  " + new string('=', 43));
-        for (int i = 0; i < available.Count; i++)
-            Console.WriteLine($"  [{i + 1}] Player {available[i].Slot} : {available[i].DisplayName}{(available[i].IsPlayStation ? " [PS]" : "")}");
-        Console.WriteLine();
-        Console.WriteLine("  [A] All  |  [S] Choose specific  |  [1-{0}] One only", available.Count);
-        Console.WriteLine();
-        Console.Write("  Choice: ");
-        string c = Console.ReadLine()?.Trim() ?? "";
-        if (c.ToLower() == "a") return available;
-        if (c.ToLower() == "s")
-        {
-            Console.Write("  Numbers (e.g. 1 3): ");
-            var sel = (Console.ReadLine() ?? "").Trim()
-                .Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries)
-                .Where(p => int.TryParse(p, out int n) && n >= 1 && n <= available.Count)
-                .Select(p => available[int.Parse(p) - 1]).Distinct().ToList();
-            return sel.Count > 0 ? sel : available;
-        }
-        if (int.TryParse(c, out int idx) && idx >= 1 && idx <= available.Count)
-            return new List<PadInfo> { available[idx - 1] };
-        return available;
-    }
-
-    static void RunAllRemappers(List<(PadInfo Pad, Profile Profile)> controllers)
-    {
-        using var client = new ViGEmClient();
-
-        // FIX: each controller gets its own CTS so one player pressing M
-        // doesn't cancel everyone else's session.
-        var ctsList = controllers.Select(_ => new CancellationTokenSource()).ToArray();
-
-        var tasks = controllers.Select((c, idx) =>
-            Task.Run(() => RunRemapperCore(c.Pad.Pad, c.Profile, client, ctsList[idx], isSingle: false))
-        ).ToArray();
-
-        while (!_stop && !tasks.All(t => t.IsCompleted))
-        {
-            if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.M)
-            {
-                Console.WriteLine("\n  Returning to menu...");
-                foreach (var cts in ctsList) cts.Cancel();
-                break;
-            }
-            Thread.Sleep(30); // Slower check loop – less CPU in main thread
-        }
-
-        if (_stop) foreach (var cts in ctsList) cts.Cancel();
-        try { Task.WaitAll(tasks, 3000); } catch { }
-
-        foreach (var cts in ctsList) cts.Dispose();
-
-        // Report any failures so user knows what happened
-        for (int i = 0; i < tasks.Length; i++)
-        {
-            if (tasks[i].IsFaulted)
-                Console.WriteLine($"  P{i + 1} task faulted: {tasks[i].Exception?.InnerException?.Message}");
-        }
-    }
 
     // ---------------------------------------------------------------------------
     // UNIFIED REMAPPER CORE  (heat-optimized, thread-safe, array-safe)
     // ---------------------------------------------------------------------------
     static string RunRemapperCore(Joystick pad, Profile profile,
-        ViGEmClient? sharedClient, CancellationTokenSource cts, bool isSingle)
+        ViGEmClient? sharedClient, CancellationTokenSource cts)
     {
-        ViGEmClient? ownedClient = isSingle ? new ViGEmClient() : null;
+        ViGEmClient? ownedClient = new ViGEmClient();
         var client  = ownedClient ?? sharedClient!;
         var gamepad = client.CreateXbox360Controller();
         gamepad.Connect();
@@ -472,10 +331,7 @@ static class App
         int? ltIdx = profile.Triggers.TryGetValue("LT", out int? lt) && lt.HasValue && lt.Value >= 0 ? lt : null;
         int? rtIdx = profile.Triggers.TryGetValue("RT", out int? rt) && rt.HasValue && rt.Value >= 0 ? rt : null;
 
-        bool usePsAnalogTriggers = profile.UseAnalogTriggers;
-        // FIX: validate trigger axis indices are in valid range [0-5]
-        int  ltAxis = profile.AnalogLTAxis >= 0 && profile.AnalogLTAxis <= 5 ? profile.AnalogLTAxis : 4;
-        int  rtAxis = profile.AnalogRTAxis >= 0 && profile.AnalogRTAxis <= 5 ? profile.AnalogRTAxis : 5;
+
 
         var ls     = profile.LeftStick;
         var rs     = profile.RightStick;
@@ -531,8 +387,8 @@ static class App
                 int    numBtns      = currentBtns.Length;
                 bool   changed      = false;
 
-                // -- M key → return to menu (single controller only) --
-                if (isSingle && Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.M)
+                // -- M key → return to menu --
+                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.M)
                 {
                     Console.WriteLine("\n  Returning to menu...");
                     exitReason = "menu"; break;
@@ -550,20 +406,10 @@ static class App
                 }
 
                 // -- Triggers --
-                if (usePsAnalogTriggers)
-                {
-                    byte newLt = AxisToByte(GetAxis(state, ltAxis));
-                    byte newRt = AxisToByte(GetAxis(state, rtAxis));
-                    if (newLt != prevLt) { gamepad.SetSliderValue(Xbox360Slider.LeftTrigger,  newLt); prevLt = newLt; changed = true; }
-                    if (newRt != prevRt) { gamepad.SetSliderValue(Xbox360Slider.RightTrigger, newRt); prevRt = newRt; changed = true; }
-                }
-                else
-                {
-                    byte newLt = (ltIdx.HasValue && ltIdx < numBtns && currentBtns[ltIdx.Value]) ? (byte)255 : (byte)0;
-                    byte newRt = (rtIdx.HasValue && rtIdx < numBtns && currentBtns[rtIdx.Value]) ? (byte)255 : (byte)0;
-                    if (newLt != prevLt) { gamepad.SetSliderValue(Xbox360Slider.LeftTrigger,  newLt); prevLt = newLt; changed = true; }
-                    if (newRt != prevRt) { gamepad.SetSliderValue(Xbox360Slider.RightTrigger, newRt); prevRt = newRt; changed = true; }
-                }
+                byte newLt = (ltIdx.HasValue && ltIdx < numBtns && currentBtns[ltIdx.Value]) ? (byte)255 : (byte)0;
+                byte newRt = (rtIdx.HasValue && rtIdx < numBtns && currentBtns[rtIdx.Value]) ? (byte)255 : (byte)0;
+                if (newLt != prevLt) { gamepad.SetSliderValue(Xbox360Slider.LeftTrigger,  newLt); prevLt = newLt; changed = true; }
+                if (newRt != prevRt) { gamepad.SetSliderValue(Xbox360Slider.RightTrigger, newRt); prevRt = newRt; changed = true; }
 
                 // -- Sticks --
                 short lx = ScaleAxis(GetAxis(state, ls.XAxis) * ls.XPosSign, antiDz, ls.InnerDeadzone);
@@ -632,12 +478,7 @@ static class App
             _ => 0
         }) / 32767.0;
 
-    // FIX: AxisToByte for trigger axes which output 0 to 1 range (0 to 32767 raw)
-    static byte AxisToByte(double val) =>
-        (byte)Math.Clamp(val * 255.0, 0, 255);
-    
-    // Old centered conversion (for reference, not used anymore):
-    // (byte)Math.Clamp((val + 1.0) / 2.0 * 255.0, 0, 255);
+
 
     static short ScaleAxis(double val, int antiDeadzone, double innerDeadzone = 0.08)
     {
@@ -742,8 +583,7 @@ static class App
             for (int i = 0; i < 6; i++)
             {
                 double val = GetAxis(state, i);
-                // FIX: lower threshold from 0.5 to 0.35 so PS trigger presses at 35%+ are detected
-                if (Math.Abs(val) <= 0.35 || Math.Abs(val - baseline[i]) <= 0.3) continue;
+                if (Math.Abs(val) <= 0.5 || Math.Abs(val - baseline[i]) <= 0.3) continue;
                 int sign = val > 0 ? 1 : -1;
                 int t = 3000;
                 while (t-- > 0)
@@ -759,6 +599,9 @@ static class App
             }
         }
     }
+
+    static string CenterText(string text, int width = 43) =>
+        "  " + text.PadLeft((width + text.Length) / 2).PadRight(width);
 
     static int PollHz(PollMode m) => m switch
     {
@@ -986,7 +829,7 @@ static class App
     // ---------------------------------------------------------------------------
     // SETUP WIZARD
     // ---------------------------------------------------------------------------
-    static Profile RunWizard(Joystick pad, string ctrlName, string layoutName, bool isPS = false)
+    static Profile RunWizard(Joystick pad, string ctrlName, string layoutName)
     {
         JoystickState initState;
         lock (_diPollLock)
@@ -1015,8 +858,8 @@ static class App
 
         var steps = new List<(string Label, string Type, string Key)>();
         foreach (var b in XboxButtons) steps.Add((b.Label, "btn", b.Label));
-        steps.Add(("LT", isPS ? "axis" : "btn", "LT"));
-        steps.Add(("RT", isPS ? "axis" : "btn", "RT"));
+        steps.Add(("LT", "btn", "LT"));
+        steps.Add(("RT", "btn", "RT"));
         steps.Add(("LEFT STICK UP",    "axis", "ls_up"));
         steps.Add(("LEFT STICK DOWN",  "axis", "ls_down"));
         steps.Add(("LEFT STICK LEFT",  "axis", "ls_left"));
@@ -1074,19 +917,8 @@ static class App
         var profile = new Profile { ControllerName = ctrlName, LayoutName = layoutName };
         foreach (var b in XboxButtons)
             profile.Buttons[b.Label] = results.TryGetValue(b.Label, out var r) ? r.Val : (int?)null;
-        if (isPS)
-        {
-            profile.UseAnalogTriggers = true;
-            profile.AnalogLTAxis = results.TryGetValue("LT", out var ltr) ? ltr.Val : 4;
-            profile.AnalogRTAxis = results.TryGetValue("RT", out var rtr) ? rtr.Val : 5;
-            profile.Triggers["LT"] = -1;
-            profile.Triggers["RT"] = -1;
-        }
-        else
-        {
-            foreach (var t in new[] { "LT", "RT" })
-                profile.Triggers[t] = results.TryGetValue(t, out var r) ? r.Val : (int?)null;
-        }
+        foreach (var t in new[] { "LT", "RT" })
+            profile.Triggers[t] = results.TryGetValue(t, out var r) ? r.Val : (int?)null;
 
         var lsUp    = results.GetValueOrDefault("ls_up",    (Val: 0, Sign: 1));
         var lsDown  = results.GetValueOrDefault("ls_down",  (Val: 0, Sign: 1));
@@ -1267,15 +1099,7 @@ static class App
         try { pad.Poll(); n = pad.GetCurrentState().Buttons.Length; }
         catch { return (new List<string> { "Controller not responding" }, warnings); }
         
-        // FIX: validate analog trigger axes if using PS analog triggers
-        if (p.UseAnalogTriggers)
-        {
-            if (p.AnalogLTAxis < 0 || p.AnalogLTAxis > 5)
-                errors.Add($"LT axis {p.AnalogLTAxis} invalid (must be 0-5)");
-            if (p.AnalogRTAxis < 0 || p.AnalogRTAxis > 5)
-                errors.Add($"RT axis {p.AnalogRTAxis} invalid (must be 0-5)");
-        }
-        
+
         foreach (var kv in p.Buttons.Concat(p.Triggers))
         {
             if (kv.Value == null) warnings.Add($"{kv.Key} not mapped");
@@ -1388,7 +1212,7 @@ static class App
     // ---------------------------------------------------------------------------
     // LAYOUT MENU
     // ---------------------------------------------------------------------------
-    static Profile? SelectLayout(Joystick pad, string ctrlName, bool isPS)
+    static Profile? SelectLayout(Joystick pad, string ctrlName)
     {
         while (true)
         {
@@ -1397,106 +1221,53 @@ static class App
             var others   = all.Where(n => LoadProfile(ctrlName, n)?.IsFavorite != true).ToList();
             var existing = favs.Concat(others).ToList();
 
-            var recent = LoadRecent()
-                .Where(e => e.Controller == ctrlName && existing.Contains(e.Layout))
-                .Take(3).ToList();
-
             Console.WriteLine();
             Console.WriteLine("  " + new string('=', 43));
-            Console.WriteLine($"              {ctrlName}");
+            Console.WriteLine(CenterText(ctrlName));
             Console.WriteLine("  " + new string('=', 43));
+            Console.WriteLine();
 
-            if (recent.Count > 0)
+            if (existing.Count > 0)
             {
-                Console.WriteLine();
-                Console.WriteLine("  RECENT");
-                for (int i = 0; i < recent.Count; i++)
-                {
-                    var rp = LoadProfile(ctrlName, recent[i].Layout);
-                    string rs = rp != null ? $"  [{SensitivityLabel(rp.AntiDeadzone)} {rp.AntiDeadzone}]" : "";
-                    Console.WriteLine($"  [Recent{i + 1}]  {recent[i].Layout}{rs}");
-                }
-                Console.WriteLine();
-            }
-
-            if (existing.Count == 0)
-            {
-                Console.WriteLine("  (no saved layouts yet)");
-            }
-            else
-            {
-                Console.WriteLine();
-                Console.WriteLine("  LAYOUTS");
                 for (int i = 0; i < existing.Count; i++)
                 {
                     var p    = LoadProfile(ctrlName, existing[i]);
-                    string fav  = p?.IsFavorite == true ? " *" : "  ";
-                    string ps   = p?.UseAnalogTriggers == true ? "  [PS]" : "";
-                    string s    = p != null ? $"  [{SensitivityLabel(p.AntiDeadzone)} {p.AntiDeadzone}]" : "";
-                    string g    = p?.GameExePath != null ? $"  [{Path.GetFileNameWithoutExtension(p.GameExePath)}]" : "";
-                    string note = !string.IsNullOrEmpty(p?.Notes) ? $"  \"{p!.Notes}\"" : "";
-                    string dup  = p != null && FindDuplicates(p).Count > 0 ? "  [!dup]" : "";
-                    Console.WriteLine($"  [{i + 1}]{fav} {existing[i]}{ps}{s}{g}{note}{dup}");
+                    string fav  = p?.IsFavorite == true ? "*" : " ";
+                    string dup  = p != null && FindDuplicates(p).Count > 0 ? " [!]" : "";
+                    Console.WriteLine($"  [{i + 1}]{fav} {existing[i]}{dup}");
                 }
+            }
+            else
+            {
+                Console.WriteLine("  (no layouts saved)");
             }
 
             Console.WriteLine();
-            Console.WriteLine("  [N] New layout (wizard)");
-            Console.WriteLine("  [P] PS smart default  (DS4/DS5 preset)");
+            Console.WriteLine("  [N] New Layout");
+            Console.WriteLine("  [1-{0}] Load Layout".Replace("{0}", existing.Count.ToString()));
             if (existing.Count > 0)
             {
+                Console.WriteLine();
                 string? lastUsed = LoadLastUsed(ctrlName);
                 if (lastUsed != null && existing.Contains(lastUsed))
-                    Console.WriteLine($"  [L]  Quick load last: {lastUsed}");
-                Console.WriteLine($"  [1-{existing.Count}]  Load a layout");
-                if (recent.Count > 0)
-                    Console.WriteLine($"  [Recent1-Recent{recent.Count}]  Load recent");
+                    Console.WriteLine($"  [L] Last: {lastUsed}");
+                Console.WriteLine("  [E] Edit Layout");
+                Console.WriteLine("  [T] Test Layout");
+                Console.WriteLine("  [R] Rename");
+                Console.WriteLine("  [D] Delete");
+                Console.WriteLine("  [A] Sensitivity");
+                Console.WriteLine("  [G] Game Launcher");
+                Console.WriteLine("  [X] Export");
+                Console.WriteLine("  [I] Import");
                 Console.WriteLine();
-                Console.WriteLine("  [E]  Edit layout");
-                Console.WriteLine("  [T]  Test layout");
-                Console.WriteLine("  [A]  Adjust sensitivity");
-                Console.WriteLine("  [G]  Set game launcher");
-                Console.WriteLine("  [X]  Export layout");
-                Console.WriteLine("  [I]  Import layout");
-                Console.WriteLine("  [R]  Rename layout");
-                Console.WriteLine("  [D]  Delete layout");
             }
-            Console.WriteLine();
-            Console.WriteLine("  [S]  Settings");
+            Console.WriteLine("  [S] Settings");
             Console.WriteLine();
             Console.Write("  Choice: ");
             string choice = Console.ReadLine()?.Trim() ?? "";
             string cl     = choice.ToLower();
 
-            if (cl.StartsWith("recent") && int.TryParse(cl["recent".Length..], out int ri) && ri >= 1 && ri <= recent.Count)
-            {
-                string rLayout  = recent[ri - 1].Layout;
-                var    rProfile = LoadProfile(ctrlName, rLayout);
-                if (rProfile == null) { Console.WriteLine("  Could not load."); continue; }
-                var (re, _) = Validate(rProfile, pad);
-                if (re.Count > 0) { foreach (string e in re) Console.WriteLine($"  ERR: {e}"); continue; }
-                SaveLastUsed(ctrlName, rLayout); SaveRecent(ctrlName, rLayout);
-                TryLaunchGame(rProfile); return rProfile;
-            }
-
             if (cl == "s") { ShowSettings(); Banner(); continue; }
-
-            if (cl == "p")
-            {
-                Console.WriteLine("  PS Wizard -- L2/R2 will be mapped as analog axes.");
-                Console.Write("  Layout name (e.g. DS4, DualSense): ");
-                string name = Console.ReadLine()?.Trim() ?? "PS Default";
-                if (string.IsNullOrEmpty(name)) name = "PS Default";
-                if (existing.Any(e => Safe(e) == Safe(name)))
-                {
-                    Console.Write($"  '{name}' exists. Overwrite? [y/N]: ");
-                    if (Console.ReadLine()?.Trim().ToLower() != "y") continue;
-                }
-                var wp = RunWizard(pad, ctrlName, name, isPS: true);
-                // FIX: don't return an incomplete profile to the caller
-                if (wp.IsIncomplete) { Console.WriteLine("  Wizard did not complete. Layout not saved."); continue; }
-                return wp;
-            }
 
             if (cl == "l" && existing.Count > 0)
             {
@@ -1527,7 +1298,7 @@ static class App
                     Console.Write($"  '{name}' exists. Overwrite? [y/N]: ");
                     if (Console.ReadLine()?.Trim().ToLower() != "y") continue;
                 }
-                var wp = RunWizard(pad, ctrlName, name, isPS);
+                var wp = RunWizard(pad, ctrlName, name);
                 // FIX: don't return an incomplete profile to the caller
                 if (wp.IsIncomplete) { Console.WriteLine("  Wizard did not complete. Layout not saved."); continue; }
                 return wp;
@@ -1735,9 +1506,7 @@ class Profile
     [JsonPropertyName("game_exe_path")]      public string? GameExePath       { get; set; } = null;
     [JsonPropertyName("is_favorite")]        public bool    IsFavorite        { get; set; } = false;
     [JsonPropertyName("notes")]              public string? Notes             { get; set; } = null;
-    [JsonPropertyName("use_analog_triggers")]public bool    UseAnalogTriggers { get; set; } = false;
-    [JsonPropertyName("analog_lt_axis")]     public int     AnalogLTAxis      { get; set; } = 4;
-    [JsonPropertyName("analog_rt_axis")]     public int     AnalogRTAxis      { get; set; } = 5;
+
 
     // FIX: IsIncomplete flag replaces the silent empty-profile return from wizard failures.
     // Marked JsonIgnore so it never persists to disk.

@@ -568,3 +568,4 @@ C:\Users\Kene\Documents\DIRECT360 - Copy\bin\Release\net10.0-windows\win-x64\zh-
 C:\Users\Kene\Documents\DIRECT360 - Copy\obj\Release\net10.0-windows\win-x64\DIRECT360.csproj.Up2Date
 C:\Users\Kene\Documents\DIRECT360 - Copy\obj\Release\net10.0-windows\win-x64\DIRECT360.genruntimeconfig.cache
 C:\Users\Kene\Documents\DIRECT360 - Copy\obj\Release\net10.0-windows\win-x64\ref\DIRECT360.dll
+C:\Users\Kene\Documents\DIRECT360\obj\Release\net10.0-windows\win-x64\DIRECT360.sourcelink.json
