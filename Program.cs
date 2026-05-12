@@ -84,11 +84,25 @@ static class App
 
         while (!_stop)
         {
-            var pads = GetAllRealPads();
-            if (_stop) break;
+            Console.WriteLine();
+            Console.WriteLine(CenterText("MODE SELECTION"));
+            Console.WriteLine();
+            Console.WriteLine("  [1] Single Controller Mode");
+            Console.WriteLine("  [2] Multi-Controller Mode");
+            Console.WriteLine("  [S] Settings");
+            Console.WriteLine();
+            Console.Write("  Choice: ");
+            string modeChoice = Console.ReadLine()?.Trim().ToLower() ?? "";
 
-            if (pads.Count >= 1)
-                RunSingleController(pads[0]);
+            if (modeChoice == "s") { ShowSettings(); Banner(); continue; }
+            if (modeChoice == "2") { RunMultiControllerMode(); continue; }
+            if (modeChoice == "1" || modeChoice == "")
+            {
+                var pads = GetAllRealPads();
+                if (_stop) break;
+                if (pads.Count >= 1)
+                    RunSingleController(pads[0]);
+            }
         }
 
         if (_settings.PollMode == PollMode.Performance)
@@ -620,14 +634,14 @@ static class App
     {
         Console.WriteLine();
         Console.WriteLine("  " + new string('=', 43));
-        Console.WriteLine("  STICK SENSITIVITY");
+        Console.WriteLine(CenterText("Stick Sensitivity"));
         Console.WriteLine("  " + new string('=', 43));
-        Console.WriteLine("  [1] Light  -- slightest touch registers  (12000-16000)");
-        Console.WriteLine("  [2] Normal -- balanced for most games    ( 8000-11999)  <- default");
-        Console.WriteLine("  [3] Firm   -- needs deliberate push      ( 4000- 7999)");
+        Console.WriteLine("  [1] Light   (12000-16000) - slightest touch");
+        Console.WriteLine("  [2] Normal  (8000-11999)   - balanced (default)");
+        Console.WriteLine("  [3] Firm    (4000-7999)    - deliberate push");
         Console.WriteLine();
         Console.WriteLine($"  Current: {SensitivityLabel(currentVal)} ({currentVal})");
-        Console.Write("  Choose [1/2/3] then Enter to use default, or type exact value: ");
+        Console.Write("  Pick [1/2/3] or Enter to use default: ");
         string cat = Console.ReadLine()?.Trim() ?? "";
 
         int min, max, def;
@@ -637,11 +651,11 @@ static class App
             default:  min = 8000;  max = 11999; def = 10000; break;
         }
 
-        Console.Write($"  Enter to use {def}, or type {min}-{max}: ");
+        Console.Write($"  [{min}-{max}] or press Enter: ");
         string inp = Console.ReadLine()?.Trim() ?? "";
         if (int.TryParse(inp, out int v) && v >= min && v <= max)
-        { Console.WriteLine($"  Set to {SensitivityLabel(v)} ({v})"); return v; }
-        Console.WriteLine($"  Set to {SensitivityLabel(def)} ({def})");
+        { Console.WriteLine($"  ✓ Set to {SensitivityLabel(v)} ({v})"); return v; }
+        Console.WriteLine($"  ✓ Set to {SensitivityLabel(def)} ({def})");
         return def;
     }
 
@@ -662,7 +676,7 @@ static class App
         var profile = LoadProfile(ctrlName, existing[idx]);
         if (profile == null) return;
         profile.AntiDeadzone = AskSensitivity(profile.AntiDeadzone);
-        Console.Write("  Adjust inner deadzone too? [y/N]: ");
+        Console.Write("  Adjust inner deadzone too? [Y/N]: ");
         if (Console.ReadLine()?.Trim().ToLower() == "y")
         {
             Console.WriteLine("  Left stick:");  profile.LeftStick.InnerDeadzone  = AskInnerDeadzone(profile.LeftStick.InnerDeadzone);
@@ -670,6 +684,29 @@ static class App
         }
         SaveProfile(profile);
         Console.WriteLine($"  Saved [{profile.LayoutName}].");
+    }
+
+    static void AdjustDeadzone(Joystick pad, string ctrlName, List<string> existing)
+    {
+        if (existing.Count == 0) { Console.WriteLine("  No layouts."); return; }
+        PickLayout(existing, out int idx);
+        if (idx < 0) return;
+        var profile = LoadProfile(ctrlName, existing[idx]);
+        if (profile == null) { Console.WriteLine("  Load failed."); return; }
+        try
+        {
+            Console.WriteLine();
+            Console.WriteLine("  " + new string('=', 43));
+            Console.WriteLine(CenterText("Inner Deadzone Settings"));
+            Console.WriteLine("  " + new string('=', 43));
+            Console.WriteLine("  Left stick:");
+            profile.LeftStick.InnerDeadzone = AskInnerDeadzone(profile.LeftStick.InnerDeadzone);
+            Console.WriteLine("  Right stick:");
+            profile.RightStick.InnerDeadzone = AskInnerDeadzone(profile.RightStick.InnerDeadzone);
+            SaveProfile(profile);
+            Console.WriteLine($"  ✓ Saved [{profile.LayoutName}].");
+        }
+        catch (Exception ex) { Console.WriteLine($"  Error: {ex.Message}"); }
     }
 
     // ---------------------------------------------------------------------------
@@ -962,18 +999,12 @@ static class App
         }
 
         profile.AntiDeadzone = AskSensitivity();
-        Console.Write("  Set inner deadzone? [y/N]: ");
+        Console.Write("  Set inner deadzone? [Y/N]: ");
         if (Console.ReadLine()?.Trim().ToLower() == "y")
         {
             Console.WriteLine("  Left stick:");  profile.LeftStick.InnerDeadzone  = AskInnerDeadzone();
             Console.WriteLine("  Right stick:"); profile.RightStick.InnerDeadzone = AskInnerDeadzone();
         }
-
-        Console.Write("  Mark as favorite? [y/N]: ");
-        profile.IsFavorite = Console.ReadLine()?.Trim().ToLower() == "y";
-        Console.Write("  Note (Enter to skip): ");
-        string note = Console.ReadLine()?.Trim() ?? "";
-        if (!string.IsNullOrEmpty(note)) profile.Notes = note;
 
         var dupes = FindDuplicates(profile);
         if (dupes.Count > 0)
@@ -1057,7 +1088,7 @@ static class App
                 if (conflict.Count > 0)
                 {
                     Console.WriteLine($"  Already used by {string.Join(", ", conflict)}");
-                    Console.Write("  Assign anyway? [y/N]: ");
+                    Console.Write("  Assign anyway? [Y/N]: ");
                     if (Console.ReadLine()?.Trim().ToLower() != "y") { Console.WriteLine("  Cancelled."); continue; }
                 }
                 if (kind == "trg") profile.Triggers[name] = newIdx;
@@ -1119,14 +1150,20 @@ static class App
 
         Console.WriteLine();
         Console.WriteLine("  " + new string('=', 43));
-        Console.WriteLine($"  TEST MODE  --  {profile.LayoutName}");
-        Console.WriteLine("  Press buttons to see Xbox mapping. Escape to exit.");
-        Console.WriteLine("  " + new string('=', 43) + "\n");
+        Console.WriteLine(CenterText($"Test: {profile.LayoutName}"));
+        Console.WriteLine("  " + new string('=', 43));
+        Console.WriteLine("  Press buttons to see mapping");
+        Console.WriteLine("  Escape = Exit  |  M = Back to Menu");
+        Console.WriteLine();
 
         bool[] prev = new bool[128];
         while (!_stop)
         {
-            if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape) break;
+            if (Console.KeyAvailable)
+            {
+                var key = Console.ReadKey(true).Key;
+                if (key == ConsoleKey.Escape || key == ConsoleKey.M) break;
+            }
             Thread.Sleep(10); // reduced from 4ms
             try
             {
@@ -1217,8 +1254,9 @@ static class App
         while (true)
         {
             var all      = ListProfiles(ctrlName);
-            var favs     = all.Where(n => LoadProfile(ctrlName, n)?.IsFavorite == true).ToList();
-            var others   = all.Where(n => LoadProfile(ctrlName, n)?.IsFavorite != true).ToList();
+            var profiles = all.ToDictionary(n => n, n => LoadProfile(ctrlName, n));
+            var favs     = all.Where(n => profiles[n]?.IsFavorite == true).ToList();
+            var others   = all.Where(n => profiles[n]?.IsFavorite != true).ToList();
             var existing = favs.Concat(others).ToList();
 
             Console.WriteLine();
@@ -1231,7 +1269,7 @@ static class App
             {
                 for (int i = 0; i < existing.Count; i++)
                 {
-                    var p    = LoadProfile(ctrlName, existing[i]);
+                    var p    = profiles[existing[i]];
                     string fav  = p?.IsFavorite == true ? "*" : " ";
                     string dup  = p != null && FindDuplicates(p).Count > 0 ? " [!]" : "";
                     Console.WriteLine($"  [{i + 1}]{fav} {existing[i]}{dup}");
@@ -1256,18 +1294,38 @@ static class App
                 Console.WriteLine("  [R] Rename");
                 Console.WriteLine("  [D] Delete");
                 Console.WriteLine("  [A] Sensitivity");
+                Console.WriteLine("  [Z] Deadzone");
                 Console.WriteLine("  [G] Game Launcher");
                 Console.WriteLine("  [X] Export");
                 Console.WriteLine("  [I] Import");
                 Console.WriteLine();
             }
             Console.WriteLine("  [S] Settings");
+            Console.WriteLine("  [B] Back");
             Console.WriteLine();
             Console.Write("  Choice: ");
             string choice = Console.ReadLine()?.Trim() ?? "";
             string cl     = choice.ToLower();
 
+            if (cl == "b") { return null; }
+
             if (cl == "s") { ShowSettings(); Banner(); continue; }
+
+            if (cl == "n")
+            {
+                Console.Write("  Layout name: ");
+                string name = Console.ReadLine()?.Trim() ?? "default";
+                if (string.IsNullOrEmpty(name)) name = "default";
+                if (existing.Any(e => Safe(e) == Safe(name)))
+                {
+                    Console.Write($"  '{name}' exists. Overwrite? [Y/N]: ");
+                    if (Console.ReadLine()?.Trim().ToLower() != "y") continue;
+                }
+                var wp = RunWizard(pad, ctrlName, name);
+                // FIX: don't return an incomplete profile to the caller
+                if (wp.IsIncomplete) { Console.WriteLine("  Wizard did not complete. Layout not saved."); continue; }
+                return wp;
+            }
 
             if (cl == "l" && existing.Count > 0)
             {
@@ -1295,7 +1353,7 @@ static class App
                 if (string.IsNullOrEmpty(name)) name = "default";
                 if (existing.Any(e => Safe(e) == Safe(name)))
                 {
-                    Console.Write($"  '{name}' exists. Overwrite? [y/N]: ");
+                    Console.Write($"  '{name}' exists. Overwrite? [Y/N]: ");
                     if (Console.ReadLine()?.Trim().ToLower() != "y") continue;
                 }
                 var wp = RunWizard(pad, ctrlName, name);
@@ -1311,6 +1369,8 @@ static class App
             { PickLayout(existing, out int tc); if (tc >= 0) { var p = LoadProfile(ctrlName, existing[tc]); if (p != null) RunTestMode(pad, p); } continue; }
 
             if (cl == "a" && existing.Count > 0) { AdjustSensitivity(pad, ctrlName, existing); continue; }
+
+            if (cl == "z" && existing.Count > 0) { AdjustDeadzone(pad, ctrlName, existing); continue; }
 
             if (cl == "g" && existing.Count > 0) { SetGameLauncher(ctrlName, existing); continue; }
 
@@ -1354,7 +1414,7 @@ static class App
                 if (dc >= 0)
                 {
                     string del = existing[dc];
-                    Console.Write($"  Delete '{del}'? [y/N]: ");
+                    Console.Write($"  Delete '{del}'? [Y/N]: ");
                     if (Console.ReadLine()?.Trim().ToLower() == "y")
                         try { File.Delete(ProfilePath(ctrlName, del)); Console.WriteLine($"  Deleted."); }
                         catch (Exception ex) { Console.WriteLine($"  Failed: {ex.Message}"); }
@@ -1462,6 +1522,357 @@ static class App
         for (int i = 0; i < list.Count; i++) Console.WriteLine($"    [{i + 1}] {list[i]}");
         Console.Write("  Pick number: ");
         result = int.TryParse(Console.ReadLine(), out int n) && n >= 1 && n <= list.Count ? n - 1 : -1;
+    }
+
+    // ---------------------------------------------------------------------------
+    // MULTI-CONTROLLER MODE
+    // ---------------------------------------------------------------------------
+    static void RunMultiControllerMode()
+    {
+        while (!_stop)
+        {
+            var multiSetups = ListMultiSetups();
+            Console.WriteLine();
+            Console.WriteLine("  " + new string('=', 43));
+            Console.WriteLine(CenterText("Multi-Controller Setups"));
+            Console.WriteLine("  " + new string('=', 43));
+            Console.WriteLine();
+
+            if (multiSetups.Count > 0)
+            {
+                for (int i = 0; i < multiSetups.Count; i++)
+                {
+                    var setup = LoadMultiSetupFromFile(multiSetups[i]);
+                    if (setup != null)
+                    {
+                        int controllerCount = setup.Controllers.Count;
+                        Console.WriteLine($"  [{i + 1}] {setup.Name} ({controllerCount} controllers)");
+                    }
+                }
+                Console.WriteLine();
+            }
+            else
+            {
+                Console.WriteLine("  (no multi-setups saved)");
+                Console.WriteLine();
+            }
+
+            Console.WriteLine("  [N] New Setup");
+            if (multiSetups.Count > 0)
+                Console.WriteLine($"  [1-{multiSetups.Count}] Load Setup");
+            Console.WriteLine("  [B] Back to Main Menu");
+            Console.WriteLine();
+            Console.Write("  Choice: ");
+            string choice = Console.ReadLine()?.Trim().ToLower() ?? "";
+
+            if (choice == "b") break;
+            if (choice == "n") { CreateNewMultiSetup(); continue; }
+            if (int.TryParse(choice, out int idx) && idx >= 1 && idx <= multiSetups.Count)
+            {
+                var setup = LoadMultiSetupFromFile(multiSetups[idx - 1]);
+                if (setup != null) RunMultiSetupManagement(setup);
+                continue;
+            }
+            Console.WriteLine("  Invalid choice.");
+        }
+    }
+
+    static List<string> ListMultiSetups()
+    {
+        string multiDir = Path.Combine(AppContext.BaseDirectory, "profiles", "MultiSetups");
+        try
+        {
+            Directory.CreateDirectory(multiDir);
+            return Directory.GetFiles(multiDir, "*.json")
+                .Select(f => Path.GetFileNameWithoutExtension(f))
+                .Where(n => !string.IsNullOrEmpty(n))
+                .ToList();
+        }
+        catch { return new List<string>(); }
+    }
+
+    static string MultiSetupPath(string setupName) =>
+        Path.Combine(AppContext.BaseDirectory, "profiles", "MultiSetups", $"{setupName}.json");
+
+    static void CreateNewMultiSetup()
+    {
+        var pads = GetAllRealPads();
+        if (pads.Count == 0)
+        {
+            Console.WriteLine("  No controllers detected.");
+            Console.ReadLine();
+            return;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("  " + new string('=', 43));
+        Console.WriteLine(CenterText("New Multi-Setup"));
+        Console.WriteLine("  " + new string('=', 43));
+        Console.WriteLine();
+        Console.WriteLine("  Detected Controllers:");
+        for (int i = 0; i < pads.Count; i++)
+            Console.WriteLine($"    [{i + 1}] {pads[i].DisplayName}");
+        Console.WriteLine();
+
+        Console.Write("  Setup name (e.g. GameSession1): ");
+        string setupName = Console.ReadLine()?.Trim() ?? "NewSetup";
+        if (string.IsNullOrEmpty(setupName)) setupName = "NewSetup";
+
+        var setup = new MultiSetup { Name = setupName };
+
+        for (int i = 0; i < pads.Count; i++)
+        {
+            Console.WriteLine();
+            Console.WriteLine("  " + new string('=', 43));
+            Console.WriteLine($"  [{i + 1}/{pads.Count}] {pads[i].DisplayName}");
+            Console.WriteLine("  " + new string('=', 43));
+
+            Console.WriteLine("  [N] Create new layout (wizard)");
+            Console.WriteLine("  [E] Use existing layout");
+            Console.Write("  Choice: ");
+            string layoutChoice = Console.ReadLine()?.Trim().ToLower() ?? "";
+
+            Profile? profile = null;
+            if (layoutChoice == "n")
+            {
+                Console.Write("  Layout name: ");
+                string layoutName = Console.ReadLine()?.Trim() ?? $"player{i + 1}";
+                if (string.IsNullOrEmpty(layoutName)) layoutName = $"player{i + 1}";
+                profile = RunWizard(pads[i].Pad, pads[i].ProfileName, layoutName);
+                if (profile == null || profile.IsIncomplete)
+                {
+                    Console.WriteLine("  Wizard cancelled.");
+                    Console.ReadLine();
+                    return;
+                }
+            }
+            else if (layoutChoice == "e")
+            {
+                var layouts = ListProfiles(pads[i].ProfileName);
+                if (layouts.Count == 0)
+                {
+                    Console.WriteLine("  No saved layouts for this controller.");
+                    i--;
+                    continue;
+                }
+                PickLayout(layouts, out int layoutIdx);
+                if (layoutIdx >= 0)
+                    profile = LoadProfile(pads[i].ProfileName, layouts[layoutIdx]);
+            }
+
+            if (profile != null)
+            {
+                setup.Controllers.Add(new MultiSetupController
+                {
+                    InstanceGuid = pads[i].InstanceGuid.ToString(),
+                    DisplayName = pads[i].DisplayName,
+                    ProfileName = pads[i].ProfileName,
+                    LayoutName = profile.LayoutName
+                });
+            }
+        }
+
+        if (setup.Controllers.Count > 0)
+        {
+            SaveMultiSetup(setup);
+            Console.WriteLine($"\n  ✓ Setup saved! ({setup.Controllers.Count} controllers configured)");
+            Console.ReadLine();
+        }
+        else
+        {
+            Console.WriteLine("\n  No controllers configured. Setup cancelled.");
+            Console.ReadLine();
+        }
+    }
+
+    static void RunMultiSetupManagement(MultiSetup setup)
+    {
+        while (!_stop)
+        {
+            var pads = GetAllRealPads();
+            var availableGuids = pads.Select(p => p.InstanceGuid.ToString()).ToHashSet();
+            var activeControllers = setup.Controllers.Where(c => availableGuids.Contains(c.InstanceGuid)).ToList();
+
+            Console.WriteLine();
+            Console.WriteLine("  " + new string('=', 43));
+            Console.WriteLine(CenterText(setup.Name));
+            Console.WriteLine("  " + new string('=', 43));
+            Console.WriteLine();
+
+            if (activeControllers.Count < setup.Controllers.Count)
+            {
+                Console.WriteLine($"  ⚠️  {setup.Controllers.Count - activeControllers.Count} controller(s) not found");
+                Console.WriteLine();
+            }
+
+            for (int i = 0; i < activeControllers.Count; i++)
+            {
+                var c = activeControllers[i];
+                Console.WriteLine($"  P{i + 1}: {c.DisplayName}");
+                Console.WriteLine($"      Layout: [{c.LayoutName}]");
+            }
+            Console.WriteLine();
+
+            Console.WriteLine("  [R] Run Now");
+            if (activeControllers.Count > 0)
+            {
+                Console.WriteLine("  [E] Edit Controller");
+                Console.WriteLine("  [T] Test Controller");
+            }
+            Console.WriteLine("  [G] Set Game");
+            Console.WriteLine("  [D] Delete Setup");
+            Console.WriteLine("  [B] Back");
+            Console.WriteLine();
+            Console.Write("  Choice: ");
+            string choice = Console.ReadLine()?.Trim().ToLower() ?? "";
+
+            if (choice == "b") break;
+            if (choice == "d")
+            {
+                Console.Write("  Delete this setup? [Y/N]: ");
+                if (Console.ReadLine()?.Trim().ToLower() == "y")
+                {
+                    try { File.Delete(MultiSetupPath(setup.Name)); }
+                    catch { }
+                    Console.WriteLine("  Deleted.");
+                    break;
+                }
+            }
+            if (choice == "g")
+            {
+                Console.WriteLine("  Set game for this setup...");
+                Console.WriteLine("  [C] Clear  |  [Enter] Browse for .exe");
+                Console.Write("  Choice: ");
+                string nav = Console.ReadLine()?.Trim().ToLower() ?? "";
+                if (nav == "c") { setup.GameExePath = null; SaveMultiSetup(setup); Console.WriteLine("  Cleared."); }
+                else
+                {
+                    string? gamePath = RunFileDialog(save: false, filter: "Executable (*.exe)|*.exe|All (*.*)|*.*",
+                        title: "Select Game EXE", defaultFile: null);
+                    if (!string.IsNullOrEmpty(gamePath))
+                    {
+                        setup.GameExePath = gamePath;
+                        SaveMultiSetup(setup);
+                        Console.WriteLine($"  Set to: {Path.GetFileNameWithoutExtension(gamePath)}");
+                    }
+                }
+                continue;
+            }
+            if (choice == "r" && activeControllers.Count > 0)
+            {
+                RunMultiControllers(activeControllers, pads);
+                continue;
+            }
+            if (choice == "e" && activeControllers.Count > 0)
+            {
+                Console.WriteLine("  Edit layout for which controller?");
+                for (int i = 0; i < activeControllers.Count; i++)
+                    Console.WriteLine($"    [{i + 1}] {activeControllers[i].DisplayName}");
+                Console.Write("  Choice: ");
+                if (int.TryParse(Console.ReadLine(), out int ec) && ec >= 1 && ec <= activeControllers.Count)
+                {
+                    var c = activeControllers[ec - 1];
+                    var profile = LoadProfile(c.ProfileName, c.LayoutName);
+                    var pad = pads.FirstOrDefault(p => p.InstanceGuid.ToString() == c.InstanceGuid);
+                    if (profile != null && pad != null) EditLayout(pad.Pad, profile);
+                    else Console.WriteLine("  Controller or layout not found.");
+                }
+                continue;
+            }
+            if (choice == "t" && activeControllers.Count > 0)
+            {
+                Console.WriteLine("  Test layout for which controller?");
+                for (int i = 0; i < activeControllers.Count; i++)
+                    Console.WriteLine($"    [{i + 1}] {activeControllers[i].DisplayName}");
+                Console.Write("  Choice: ");
+                if (int.TryParse(Console.ReadLine(), out int tc) && tc >= 1 && tc <= activeControllers.Count)
+                {
+                    var c = activeControllers[tc - 1];
+                    var profile = LoadProfile(c.ProfileName, c.LayoutName);
+                    var pad = pads.FirstOrDefault(p => p.InstanceGuid.ToString() == c.InstanceGuid);
+                    if (profile != null && pad != null) RunTestMode(pad.Pad, profile);
+                    else Console.WriteLine("  Controller or layout not found.");
+                }
+                continue;
+            }
+        }
+    }
+
+    static void RunMultiControllers(List<MultiSetupController> activeControllers, List<PadInfo> allPads)
+    {
+        var tasks = new List<Task>();
+        var ctsList = new List<CancellationTokenSource>();
+
+        using var client = new ViGEmClient();
+
+        Console.WriteLine();
+        Console.WriteLine("  " + new string('=', 43));
+        Console.WriteLine("  DIRECT360 is now running");
+        Console.WriteLine("  " + new string('=', 43));
+        for (int i = 0; i < activeControllers.Count; i++)
+        {
+            var ac = activeControllers[i];
+            var pad = allPads.First(p => p.InstanceGuid.ToString() == ac.InstanceGuid);
+            var profile = LoadProfile(ac.ProfileName, ac.LayoutName);
+            if (profile != null)
+                Console.WriteLine($"  P{i + 1}: {ac.DisplayName} -> {ac.LayoutName}");
+        }
+        Console.WriteLine("  " + new string('=', 43));
+        Console.WriteLine("  ✓ Controllers active and remapping");
+        Console.WriteLine("  M = Back to Menu  |  Ctrl+C = Exit");
+        Console.WriteLine();
+
+        foreach (var ac in activeControllers)
+        {
+            var cts = new CancellationTokenSource();
+            ctsList.Add(cts);
+            var pad = allPads.FirstOrDefault(p => p.InstanceGuid.ToString() == ac.InstanceGuid);
+            if (pad == null) { Console.WriteLine($"  Warning: {ac.DisplayName} not found."); continue; }
+            var profile = LoadProfile(ac.ProfileName, ac.LayoutName);
+            if (profile != null)
+                tasks.Add(Task.Run(() => RunRemapperCore(pad.Pad, profile, client, cts)));
+        }
+
+        while (!_stop && !tasks.All(t => t.IsCompleted))
+        {
+            if (Console.KeyAvailable)
+            {
+                var key = Console.ReadKey(true);
+                if (key.Key == ConsoleKey.M)
+                {
+                    Console.WriteLine("\n  Returning to menu...");
+                    foreach (var cts in ctsList) cts.Cancel();
+                    break;
+                }
+            }
+            Thread.Sleep(50);
+        }
+
+        if (_stop) foreach (var cts in ctsList) cts.Cancel();
+        try { Task.WaitAll(tasks.ToArray(), 3000); } catch { }
+
+        foreach (var cts in ctsList) cts.Dispose();
+        Console.WriteLine();
+    }
+
+    static void SaveMultiSetup(MultiSetup setup)
+    {
+        try
+        {
+            string multiDir = Path.Combine(AppContext.BaseDirectory, "profiles", "MultiSetups");
+            Directory.CreateDirectory(multiDir);
+            File.WriteAllText(MultiSetupPath(setup.Name),
+                JsonSerializer.Serialize(setup, JsonOpts));
+        }
+        catch (Exception ex) { Console.WriteLine($"  Could not save: {ex.Message}"); }
+    }
+
+    static MultiSetup? LoadMultiSetupFromFile(string setupName)
+    {
+        string path = MultiSetupPath(setupName);
+        if (!File.Exists(path)) return null;
+        try { return JsonSerializer.Deserialize<MultiSetup>(File.ReadAllText(path)); }
+        catch { return null; }
     }
 }
 
@@ -1584,4 +1995,20 @@ static class NativeMethods
             { bKeyDown = 0, wRepeatCount = 1, wVirtualKeyCode = 0x0D, uChar = '\r' };
         WriteConsoleInput(handle, records, 2, out _);
     }
+}
+
+// Multi-Controller Setup Classes
+class MultiSetupController
+{
+    [JsonPropertyName("instance_guid")] public string InstanceGuid { get; set; } = "";
+    [JsonPropertyName("display_name")] public string DisplayName { get; set; } = "";
+    [JsonPropertyName("profile_name")] public string ProfileName { get; set; } = "";
+    [JsonPropertyName("layout_name")] public string LayoutName { get; set; } = "";
+}
+
+class MultiSetup
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("controllers")] public List<MultiSetupController> Controllers { get; set; } = new();
+    [JsonPropertyName("game_exe_path")] public string? GameExePath { get; set; } = null;
 }

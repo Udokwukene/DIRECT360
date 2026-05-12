@@ -1,18 +1,14 @@
 {
   "version": 2,
-  "dgSpecHash": "tyLFmma5jq4=",
+  "dgSpecHash": "6yRLk4mIawA=",
   "success": true,
   "projectFilePath": "C:\\Users\\Kene\\Documents\\DIRECT360\\DIRECT360.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\Kene\\.nuget\\packages\\microsoft.net.illink.tasks\\10.0.7\\microsoft.net.illink.tasks.10.0.7.nupkg.sha512",
     "C:\\Users\\Kene\\.nuget\\packages\\microsoft.netcore.platforms\\1.1.0\\microsoft.netcore.platforms.1.1.0.nupkg.sha512",
     "C:\\Users\\Kene\\.nuget\\packages\\nefarius.vigem.client\\1.17.178\\nefarius.vigem.client.1.17.178.nupkg.sha512",
     "C:\\Users\\Kene\\.nuget\\packages\\netstandard.library\\1.6.1\\netstandard.library.1.6.1.nupkg.sha512",
     "C:\\Users\\Kene\\.nuget\\packages\\sharpdx\\4.2.0\\sharpdx.4.2.0.nupkg.sha512",
-    "C:\\Users\\Kene\\.nuget\\packages\\sharpdx.directinput\\4.2.0\\sharpdx.directinput.4.2.0.nupkg.sha512",
-    "C:\\Users\\Kene\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\10.0.7\\microsoft.netcore.app.runtime.win-x64.10.0.7.nupkg.sha512",
-    "C:\\Users\\Kene\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\10.0.7\\microsoft.windowsdesktop.app.runtime.win-x64.10.0.7.nupkg.sha512",
-    "C:\\Users\\Kene\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\10.0.7\\microsoft.aspnetcore.app.runtime.win-x64.10.0.7.nupkg.sha512"
+    "C:\\Users\\Kene\\.nuget\\packages\\sharpdx.directinput\\4.2.0\\sharpdx.directinput.4.2.0.nupkg.sha512"
   ],
   "logs": []
 }
