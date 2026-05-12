@@ -11,7 +11,6 @@ using Nefarius.ViGEm.Client.Targets.Xbox360;
 // Global crash logger – catches any unhandled exception and writes crash.log
 AppDomain.CurrentDomain.UnhandledException += (_, e) =>
 {
-    // FIX: end timer period before exit so Windows timer resolution is restored
     if (App.PollModeAtCrash == PollMode.Performance)
         NativeMethods.timeEndPeriod(1);
     string msg = $"[{DateTime.Now}] CRASH: {e.ExceptionObject}\n";
@@ -29,10 +28,7 @@ static class App
     const string ProfilesDir = "profiles";
     const int    RecentMax   = 5;
 
-    // Exposed so the crash handler can call timeEndPeriod if needed
     public static PollMode PollModeAtCrash = PollMode.Balanced;
-
-
 
     static readonly string[] VirtualKeywords =
         { "xbox 360 for windows", "xinput", "vigem", "virtual", "x360" };
@@ -62,9 +58,12 @@ static class App
     static AppSettings _settings = new();
     static volatile bool _stop = false;
 
-    // Thread-safety: DirectInput COM objects may not love concurrent Poll() across devices
-    // from the same instance. We serialize all Poll/GetCurrentState calls.
+    // Serialize all DirectInput Poll/GetCurrentState calls to prevent COM races
     static readonly object _diPollLock = new();
+
+    // Cache for detected pads in multi-mode to avoid re-acquiring on every menu loop
+    // FIX #8: avoid calling GetAllRealPads() on every management menu iteration
+    static List<PadInfo>? _cachedMultiPads = null;
 
     record PadInfo(Joystick Pad, string ProfileName, string DisplayName, int Slot,
                    Guid InstanceGuid);
@@ -75,7 +74,6 @@ static class App
         PollModeAtCrash = _settings.PollMode;
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; _stop = true; };
 
-        // timeBeginPeriod only for Performance mode – prevents unnecessary heat
         if (_settings.PollMode == PollMode.Performance)
             NativeMethods.timeBeginPeriod(1);
 
@@ -142,8 +140,6 @@ static class App
         return VirtualKeywords.Any(k => lower.Contains(k));
     }
 
-
-
     static readonly List<DirectInput> _activeDiInstances = new();
 
     static void DisposeActiveDi()
@@ -200,8 +196,6 @@ static class App
 
             if (result != null && result.Count > 0)
             {
-                // FIX: only add di AFTER all joysticks are successfully acquired,
-                // so DisposeActiveDi() won't pull the rug on live poll loops.
                 _activeDiInstances.Add(di);
                 string plural = result.Count == 1 ? "controller" : "controllers";
                 Console.WriteLine($"  {result.Count} {plural} detected.");
@@ -252,7 +246,6 @@ static class App
                 bool ok = WaitForReconnect(padInfo.InstanceGuid, padInfo.ProfileName,
                     padInfo.DisplayName, out PadInfo? newPad);
 
-                // Dispose old joystick to free the device handle
                 try { padInfo.Pad.Dispose(); } catch { }
 
                 if (!ok || newPad == null || _stop) break;
@@ -269,16 +262,17 @@ static class App
     {
         reconnected = null;
 
-        // FIX: use CancellationTokenSource so the abort thread is properly cleaned up
-        // when reconnect succeeds, instead of leaking a blocked ReadLine thread forever.
-        using var abortCts = new CancellationTokenSource();
+        // FIX #3: use a shared flag instead of unlinked CTS so the abort thread is
+        // reliably stopped when reconnect succeeds, not just signalled and ignored.
         bool userAborted = false;
-        var abortTask = Task.Run(() =>
+        bool reconnectSucceeded = false;
+        var abortThread = new Thread(() =>
         {
             try { Console.ReadLine(); }
             catch { }
-            userAborted = true;
-        });
+            if (!reconnectSucceeded) userAborted = true;
+        }) { IsBackground = true };
+        abortThread.Start();
 
         while (!_stop && !userAborted)
         {
@@ -305,8 +299,7 @@ static class App
                 _activeDiInstances.Add(di);
                 reconnected = new PadInfo(joy, profileName, displayName, 1, targetGuid);
 
-                // Unblock the abort ReadLine thread by sending a newline to stdin.
-                // This is the cleanest way to wake a blocked Console.ReadLine on Windows.
+                reconnectSucceeded = true; // set BEFORE unblocking ReadLine
                 try { NativeMethods.PostStdinNewline(); } catch { }
 
                 return true;
@@ -316,15 +309,15 @@ static class App
         return false;
     }
 
-
-
     // ---------------------------------------------------------------------------
-    // UNIFIED REMAPPER CORE  (heat-optimized, thread-safe, array-safe)
+    // UNIFIED REMAPPER CORE
     // ---------------------------------------------------------------------------
     static string RunRemapperCore(Joystick pad, Profile profile,
         ViGEmClient? sharedClient, CancellationTokenSource cts)
     {
-        ViGEmClient? ownedClient = new ViGEmClient();
+        // FIX #2: only create an owned client when no shared client is provided.
+        // In multi-mode the caller passes its own client — don't create a redundant one.
+        ViGEmClient? ownedClient = sharedClient == null ? new ViGEmClient() : null;
         var client  = ownedClient ?? sharedClient!;
         var gamepad = client.CreateXbox360Controller();
         gamepad.Connect();
@@ -344,8 +337,6 @@ static class App
 
         int? ltIdx = profile.Triggers.TryGetValue("LT", out int? lt) && lt.HasValue && lt.Value >= 0 ? lt : null;
         int? rtIdx = profile.Triggers.TryGetValue("RT", out int? rt) && rt.HasValue && rt.Value >= 0 ? rt : null;
-
-
 
         var ls     = profile.LeftStick;
         var rs     = profile.RightStick;
@@ -388,20 +379,17 @@ static class App
             while (!cts.IsCancellationRequested && !_stop)
             {
                 JoystickState state;
-                // Thread-safe poll: serialize DirectInput access to prevent COM races
                 lock (_diPollLock)
                 {
                     try { pad.Poll(); state = pad.GetCurrentState(); }
                     catch { exitReason = "disconnected"; break; }
                 }
 
-                // CRITICAL FIX: Clone the button array – SharpDX reuses the same buffer!
                 bool[] currentBtns = state.Buttons.Length > 0 ? (bool[])state.Buttons.Clone() : Array.Empty<bool>();
                 bool[] snapshotBtns = prevBtns;
                 int    numBtns      = currentBtns.Length;
                 bool   changed      = false;
 
-                // -- M key → return to menu --
                 if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.M)
                 {
                     Console.WriteLine("\n  Returning to menu...");
@@ -465,7 +453,7 @@ static class App
                 if (changed)
                 {
                     try { gamepad.SubmitReport(); }
-                    catch { /* ViGEm device may have been removed – ignore and continue */ }
+                    catch { /* ViGEm device removed – ignore */ }
                 }
 
                 Thread.Sleep(sleepMs);
@@ -475,7 +463,7 @@ static class App
         {
             ReleaseAll();
             try { gamepad.Disconnect(); } catch { }
-            ownedClient?.Dispose();
+            ownedClient?.Dispose(); // only disposes if we created it — safe for shared client
         }
 
         return exitReason;
@@ -492,17 +480,16 @@ static class App
             _ => 0
         }) / 32767.0;
 
-
-
     static short ScaleAxis(double val, int antiDeadzone, double innerDeadzone = 0.08)
     {
         if (Math.Abs(val) <= innerDeadzone) return 0;
         int    sign = val > 0 ? 1 : -1;
         double abs  = (Math.Abs(val) - innerDeadzone) / (1.0 - innerDeadzone);
         abs = Math.Clamp(abs, 0.0, 1.0);
-        // FIX: guard against antiDeadzone=0 so negative sign still produces correct output
-        int safeAntiDz = Math.Max(antiDeadzone, 1);
-        double scaled = safeAntiDz + (abs * abs) * (32767 - safeAntiDz);
+        // FIX #6: when antiDeadzone is 0, start from 0 (pure quadratic scaling).
+        // Use the raw value — Math.Max(antiDeadzone, 1) was incorrectly forcing a
+        // minimum of 1, meaning a user setting of 0 never actually reached zero output.
+        double scaled = antiDeadzone + (abs * abs) * (32767 - antiDeadzone);
         return (short)Math.Clamp(scaled * sign, -32767, 32767);
     }
 
@@ -520,7 +507,7 @@ static class App
     }
 
     // ---------------------------------------------------------------------------
-    // WIZARD INPUT DETECTION  (reduced CPU from 1ms → 5ms sleep)
+    // WIZARD INPUT DETECTION
     // ---------------------------------------------------------------------------
     enum Cmd { None, Back, Redo, Disconnected }
 
@@ -542,20 +529,18 @@ static class App
         while (Console.KeyAvailable) Console.ReadKey(true);
         while (true)
         {
-            Thread.Sleep(5); // was 1ms – reduced heat during wizard idle
+            Thread.Sleep(5);
             Cmd cmd = CheckKey();
             if (cmd != Cmd.None) return (true, cmd, -1);
             bool[] btns;
             lock (_diPollLock)
             {
-                // FIX: clone the buffer — SharpDX reuses the same array on every call
                 try { pad.Poll(); btns = (bool[])pad.GetCurrentState().Buttons.Clone(); }
                 catch { return (true, Cmd.Disconnected, -1); }
             }
             for (int i = 0; i < btns.Length; i++)
             {
                 if (!btns[i] || (i < baseline.Length && baseline[i])) continue;
-                // Wait for release -- prevents ghost presses on next wizard step
                 int t = 3000;
                 while (t-- > 0)
                 {
@@ -585,7 +570,7 @@ static class App
         while (Console.KeyAvailable) Console.ReadKey(true);
         while (true)
         {
-            Thread.Sleep(5); // was 1ms
+            Thread.Sleep(5);
             Cmd cmd = CheckKey();
             if (cmd != Cmd.None) return (true, cmd, -1, 0);
             JoystickState state;
@@ -602,7 +587,7 @@ static class App
                 int t = 3000;
                 while (t-- > 0)
                 {
-                    Thread.Sleep(5); // was 1ms
+                    Thread.Sleep(5);
                     lock (_diPollLock)
                     {
                         try { pad.Poll(); } catch { break; }
@@ -692,21 +677,17 @@ static class App
         PickLayout(existing, out int idx);
         if (idx < 0) return;
         var profile = LoadProfile(ctrlName, existing[idx]);
-        if (profile == null) { Console.WriteLine("  Load failed."); return; }
-        try
-        {
-            Console.WriteLine();
-            Console.WriteLine("  " + new string('=', 43));
-            Console.WriteLine(CenterText("Inner Deadzone Settings"));
-            Console.WriteLine("  " + new string('=', 43));
-            Console.WriteLine("  Left stick:");
-            profile.LeftStick.InnerDeadzone = AskInnerDeadzone(profile.LeftStick.InnerDeadzone);
-            Console.WriteLine("  Right stick:");
-            profile.RightStick.InnerDeadzone = AskInnerDeadzone(profile.RightStick.InnerDeadzone);
-            SaveProfile(profile);
-            Console.WriteLine($"  ✓ Saved [{profile.LayoutName}].");
-        }
-        catch (Exception ex) { Console.WriteLine($"  Error: {ex.Message}"); }
+        if (profile == null) return;
+        Console.WriteLine();
+        Console.WriteLine("  " + new string('=', 43));
+        Console.WriteLine(CenterText("Inner Deadzone Settings"));
+        Console.WriteLine("  " + new string('=', 43));
+        Console.WriteLine("  Left stick:");
+        profile.LeftStick.InnerDeadzone = AskInnerDeadzone(profile.LeftStick.InnerDeadzone);
+        Console.WriteLine("  Right stick:");
+        profile.RightStick.InnerDeadzone = AskInnerDeadzone(profile.RightStick.InnerDeadzone);
+        SaveProfile(profile);
+        Console.WriteLine($"  ✓ Saved [{profile.LayoutName}].");
     }
 
     // ---------------------------------------------------------------------------
@@ -787,22 +768,31 @@ static class App
         catch { Console.WriteLine($"  Could not read '{layout}' -- corrupt?"); return null; }
     }
 
+    // FIX #7: also check DpadButtons for index collisions with regular buttons/triggers
     static List<(string Name, int Idx)> FindDuplicates(Profile p)
     {
-        var seen  = new Dictionary<int, string>();
-        // FIX: use a HashSet to track already-added names so no entry appears twice
+        var seen       = new Dictionary<int, string>();
         var addedNames = new HashSet<string>();
-        var dupes = new List<(string, int)>();
-        foreach (var kv in p.Buttons.Concat(p.Triggers))
+        var dupes      = new List<(string, int)>();
+
+        // Check buttons + triggers + dpad buttons all in one pass
+        var allEntries = p.Buttons
+            .Where(kv => kv.Value.HasValue)
+            .Select(kv => (kv.Key, kv.Value!.Value))
+            .Concat(p.Triggers
+                .Where(kv => kv.Value.HasValue)
+                .Select(kv => (kv.Key, kv.Value!.Value)))
+            .Concat(p.DpadButtons
+                .Select(kv => ($"DPAD:{kv.Key}", kv.Value)));
+
+        foreach (var (name, idx) in allEntries)
         {
-            if (kv.Value == null) continue;
-            int idx = kv.Value.Value;
             if (seen.TryGetValue(idx, out string? prev))
             {
-                if (addedNames.Add(kv.Key))  dupes.Add((kv.Key, idx));
-                if (addedNames.Add(prev))     dupes.Add((prev,   idx));
+                if (addedNames.Add(name)) dupes.Add((name, idx));
+                if (addedNames.Add(prev)) dupes.Add((prev, idx));
             }
-            else seen[idx] = kv.Key;
+            else seen[idx] = name;
         }
         return dupes;
     }
@@ -817,14 +807,16 @@ static class App
         Console.WriteLine("  Reconnect your controller to continue from this step.");
         Console.WriteLine("  Press Enter to abort wizard.");
 
-        // FIX: same zombie-thread fix as WaitForReconnect
+        // FIX #3 (same pattern as WaitForReconnect): shared flag, background thread
         bool userAborted = false;
-        var abortTask = Task.Run(() =>
+        bool reconnectSucceeded = false;
+        var abortThread = new Thread(() =>
         {
             try { Console.ReadLine(); }
             catch { }
-            userAborted = true;
-        });
+            if (!reconnectSucceeded) userAborted = true;
+        }) { IsBackground = true };
+        abortThread.Start();
 
         while (!_stop && !userAborted)
         {
@@ -854,6 +846,7 @@ static class App
                 Console.WriteLine("  Reconnected! Continuing from where you left off...");
                 Console.WriteLine();
 
+                reconnectSucceeded = true;
                 try { NativeMethods.PostStdinNewline(); } catch { }
                 return true;
             }
@@ -875,7 +868,6 @@ static class App
             catch
             {
                 Console.WriteLine("  Controller disconnected. Reconnect and try again.");
-                // FIX: return null sentinel instead of empty profile so caller doesn't save garbage
                 return Profile.Incomplete(ctrlName, layoutName);
             }
         }
@@ -926,7 +918,6 @@ static class App
         while (i < steps.Count)
         {
             var (label, stype, key) = steps[i];
-            // FIX: blank line before each step for breathing room in the output
             Console.Write($"\n  {i + 1}/{steps.Count}  [ {label} ]  ");
             if (stype == "axis")
             {
@@ -966,9 +957,6 @@ static class App
         var rsLeft  = results.GetValueOrDefault("rs_left",  (Val: 1, Sign: 1));
         var rsRight = results.GetValueOrDefault("rs_right", (Val: 1, Sign: 1));
 
-        // FIX: use DOWN sign for YPosSign so both up and down detections contribute.
-        // UP gives axis index, DOWN confirms the sign direction. Same for right sticks.
-        // Negate the sign to invert the Y-axis so UP input moves up and DOWN input moves down.
         profile.LeftStick  = new StickConfig { XAxis = lsRight.Val, YAxis = lsUp.Val,
                                                XPosSign = lsRight.Sign, YPosSign = -lsDown.Sign };
         profile.RightStick = new StickConfig { XAxis = rsRight.Val, YAxis = rsUp.Val,
@@ -1122,14 +1110,12 @@ static class App
     {
         var errors = new List<string>(); var warnings = new List<string>();
 
-        // FIX: guard against validating an incomplete wizard profile
         if (p.IsIncomplete)
             return (new List<string> { "Profile is incomplete (wizard was cancelled or disconnected)" }, warnings);
 
         int n;
         try { pad.Poll(); n = pad.GetCurrentState().Buttons.Length; }
         catch { return (new List<string> { "Controller not responding" }, warnings); }
-        
 
         foreach (var kv in p.Buttons.Concat(p.Triggers))
         {
@@ -1164,7 +1150,7 @@ static class App
                 var key = Console.ReadKey(true).Key;
                 if (key == ConsoleKey.Escape || key == ConsoleKey.M) break;
             }
-            Thread.Sleep(10); // reduced from 4ms
+            Thread.Sleep(10);
             try
             {
                 pad.Poll();
@@ -1248,15 +1234,15 @@ static class App
 
     // ---------------------------------------------------------------------------
     // LAYOUT MENU
+    // FIX #1: removed the duplicate [N] handler that appeared twice in this method
     // ---------------------------------------------------------------------------
     static Profile? SelectLayout(Joystick pad, string ctrlName)
     {
         while (true)
         {
             var all      = ListProfiles(ctrlName);
-            var profiles = all.ToDictionary(n => n, n => LoadProfile(ctrlName, n));
-            var favs     = all.Where(n => profiles[n]?.IsFavorite == true).ToList();
-            var others   = all.Where(n => profiles[n]?.IsFavorite != true).ToList();
+            var favs     = all.Where(n => LoadProfile(ctrlName, n)?.IsFavorite == true).ToList();
+            var others   = all.Where(n => LoadProfile(ctrlName, n)?.IsFavorite != true).ToList();
             var existing = favs.Concat(others).ToList();
 
             Console.WriteLine();
@@ -1269,7 +1255,7 @@ static class App
             {
                 for (int i = 0; i < existing.Count; i++)
                 {
-                    var p    = profiles[existing[i]];
+                    var p    = LoadProfile(ctrlName, existing[i]);
                     string fav  = p?.IsFavorite == true ? "*" : " ";
                     string dup  = p != null && FindDuplicates(p).Count > 0 ? " [!]" : "";
                     Console.WriteLine($"  [{i + 1}]{fav} {existing[i]}{dup}");
@@ -1311,6 +1297,7 @@ static class App
 
             if (cl == "s") { ShowSettings(); Banner(); continue; }
 
+            // FIX #1: [N] handler appears exactly once here — duplicate removed
             if (cl == "n")
             {
                 Console.Write("  Layout name: ");
@@ -1322,7 +1309,6 @@ static class App
                     if (Console.ReadLine()?.Trim().ToLower() != "y") continue;
                 }
                 var wp = RunWizard(pad, ctrlName, name);
-                // FIX: don't return an incomplete profile to the caller
                 if (wp.IsIncomplete) { Console.WriteLine("  Wizard did not complete. Layout not saved."); continue; }
                 return wp;
             }
@@ -1344,22 +1330,6 @@ static class App
                 }
                 else Console.WriteLine("  No last used found.");
                 continue;
-            }
-
-            if (cl == "n")
-            {
-                Console.Write("  Layout name: ");
-                string name = Console.ReadLine()?.Trim() ?? "default";
-                if (string.IsNullOrEmpty(name)) name = "default";
-                if (existing.Any(e => Safe(e) == Safe(name)))
-                {
-                    Console.Write($"  '{name}' exists. Overwrite? [Y/N]: ");
-                    if (Console.ReadLine()?.Trim().ToLower() != "y") continue;
-                }
-                var wp = RunWizard(pad, ctrlName, name);
-                // FIX: don't return an incomplete profile to the caller
-                if (wp.IsIncomplete) { Console.WriteLine("  Wizard did not complete. Layout not saved."); continue; }
-                return wp;
             }
 
             if (cl == "e" && existing.Count > 0)
@@ -1529,6 +1499,9 @@ static class App
     // ---------------------------------------------------------------------------
     static void RunMultiControllerMode()
     {
+        // FIX #8: invalidate pad cache when entering multi-mode fresh
+        _cachedMultiPads = null;
+
         while (!_stop)
         {
             var multiSetups = ListMultiSetups();
@@ -1597,6 +1570,7 @@ static class App
     static void CreateNewMultiSetup()
     {
         var pads = GetAllRealPads();
+        _cachedMultiPads = pads; // cache after fresh detection
         if (pads.Count == 0)
         {
             Console.WriteLine("  No controllers detected.");
@@ -1675,8 +1649,10 @@ static class App
         if (setup.Controllers.Count > 0)
         {
             SaveMultiSetup(setup);
-            Console.WriteLine($"\n  ✓ Setup saved! ({setup.Controllers.Count} controllers configured)");
-            Console.ReadLine();
+            Console.WriteLine($"\n  ✓ Setup saved! ({setup.Controllers.Count} controllers)");
+            Console.WriteLine("  Mapping complete. Running multi-controller setup...\n");
+            Thread.Sleep(1000);
+            RunMultiSetupManagement(setup);
         }
         else
         {
@@ -1687,9 +1663,16 @@ static class App
 
     static void RunMultiSetupManagement(MultiSetup setup)
     {
+        // FIX #8: detect pads once when entering management for this setup,
+        // then reuse the cached list for all menu actions (edit, test, adjust, etc.)
+        // Only re-detect when explicitly running, or when cache is stale/null.
+        if (_cachedMultiPads == null)
+            _cachedMultiPads = GetAllRealPads();
+
         while (!_stop)
         {
-            var pads = GetAllRealPads();
+            var pads = _cachedMultiPads;
+            if (pads == null) break;
             var availableGuids = pads.Select(p => p.InstanceGuid.ToString()).ToHashSet();
             var activeControllers = setup.Controllers.Where(c => availableGuids.Contains(c.InstanceGuid)).ToList();
 
@@ -1718,6 +1701,8 @@ static class App
             {
                 Console.WriteLine("  [E] Edit Controller");
                 Console.WriteLine("  [T] Test Controller");
+                Console.WriteLine("  [A] Adjust Sensitivity");
+                Console.WriteLine("  [Z] Adjust Deadzone");
             }
             Console.WriteLine("  [G] Set Game");
             Console.WriteLine("  [D] Delete Setup");
@@ -1758,9 +1743,81 @@ static class App
                 }
                 continue;
             }
+            if (choice == "a" && activeControllers.Count > 0)
+            {
+                Console.WriteLine("  Adjust sensitivity for which controller?");
+                for (int i = 0; i < activeControllers.Count; i++)
+                    Console.WriteLine($"    [{i + 1}] {activeControllers[i].DisplayName}");
+                Console.Write("  Choice: ");
+                if (int.TryParse(Console.ReadLine(), out int ac) && ac >= 1 && ac <= activeControllers.Count)
+                {
+                    var c = activeControllers[ac - 1];
+                    var profile = LoadProfile(c.ProfileName, c.LayoutName);
+                    if (profile != null)
+                    {
+                        profile.AntiDeadzone = AskSensitivity(profile.AntiDeadzone);
+                        SaveProfile(profile);
+                        Console.WriteLine($"  ✓ Saved [{profile.LayoutName}].");
+                    }
+                }
+                continue;
+            }
+            if (choice == "z" && activeControllers.Count > 0)
+            {
+                Console.WriteLine("  Adjust deadzone for which controller?");
+                for (int i = 0; i < activeControllers.Count; i++)
+                    Console.WriteLine($"    [{i + 1}] {activeControllers[i].DisplayName}");
+                Console.Write("  Choice: ");
+                if (int.TryParse(Console.ReadLine(), out int zc) && zc >= 1 && zc <= activeControllers.Count)
+                {
+                    var c = activeControllers[zc - 1];
+                    var profile = LoadProfile(c.ProfileName, c.LayoutName);
+                    if (profile != null)
+                    {
+                        try
+                        {
+                            Console.WriteLine("  Left stick:");
+                            profile.LeftStick.InnerDeadzone = AskInnerDeadzone(profile.LeftStick.InnerDeadzone);
+                            Console.WriteLine("  Right stick:");
+                            profile.RightStick.InnerDeadzone = AskInnerDeadzone(profile.RightStick.InnerDeadzone);
+                            SaveProfile(profile);
+                            Console.WriteLine($"  ✓ Saved [{profile.LayoutName}].");
+                        }
+                        catch (Exception ex) { Console.WriteLine($"  Error: {ex.Message}"); }
+                    }
+                }
+                continue;
+            }
             if (choice == "r" && activeControllers.Count > 0)
             {
+                // FIX #9: trigger game launch for multi-setup before running
+                if (!string.IsNullOrEmpty(setup.GameExePath))
+                {
+                    string exeName = Path.GetFileNameWithoutExtension(setup.GameExePath);
+                    Console.Write($"\n  Launch {exeName}? [Y/n]: ");
+                    if (Console.ReadLine()?.Trim().ToLower() != "n")
+                    {
+                        if (!File.Exists(setup.GameExePath))
+                            Console.WriteLine($"  Not found: {setup.GameExePath}");
+                        else
+                        {
+                            try
+                            {
+                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                                    { FileName = setup.GameExePath,
+                                      WorkingDirectory = Path.GetDirectoryName(setup.GameExePath) ?? "",
+                                      UseShellExecute = true });
+                                Console.WriteLine($"  Launched {exeName}. Starting remapper...");
+                                Thread.Sleep(800);
+                            }
+                            catch (Exception ex) { Console.WriteLine($"  Could not launch: {ex.Message}"); }
+                        }
+                    }
+                }
+
+                // FIX #8: invalidate cache after run so next entry re-detects fresh
                 RunMultiControllers(activeControllers, pads);
+                _cachedMultiPads = null;
                 continue;
             }
             if (choice == "e" && activeControllers.Count > 0)
@@ -1800,9 +1857,12 @@ static class App
 
     static void RunMultiControllers(List<MultiSetupController> activeControllers, List<PadInfo> allPads)
     {
-        var tasks = new List<Task>();
+        var tasks   = new List<Task>();
         var ctsList = new List<CancellationTokenSource>();
 
+        // FIX #2: create one shared ViGEmClient and pass it to every core instance.
+        // The original code created a NEW ViGEmClient per controller and discarded
+        // the shared one — wasting handles and never releasing them correctly.
         using var client = new ViGEmClient();
 
         Console.WriteLine();
@@ -1812,7 +1872,8 @@ static class App
         for (int i = 0; i < activeControllers.Count; i++)
         {
             var ac = activeControllers[i];
-            var pad = allPads.First(p => p.InstanceGuid.ToString() == ac.InstanceGuid);
+            var pad = allPads.FirstOrDefault(p => p.InstanceGuid.ToString() == ac.InstanceGuid);
+            if (pad == null) continue;
             var profile = LoadProfile(ac.ProfileName, ac.LayoutName);
             if (profile != null)
                 Console.WriteLine($"  P{i + 1}: {ac.DisplayName} -> {ac.LayoutName}");
@@ -1830,6 +1891,7 @@ static class App
             if (pad == null) { Console.WriteLine($"  Warning: {ac.DisplayName} not found."); continue; }
             var profile = LoadProfile(ac.ProfileName, ac.LayoutName);
             if (profile != null)
+                // Pass the shared client — RunRemapperCore will NOT create an owned one
                 tasks.Add(Task.Run(() => RunRemapperCore(pad.Pad, profile, client, cts)));
         }
 
@@ -1918,24 +1980,21 @@ class Profile
     [JsonPropertyName("is_favorite")]        public bool    IsFavorite        { get; set; } = false;
     [JsonPropertyName("notes")]              public string? Notes             { get; set; } = null;
 
-
-    // FIX: IsIncomplete flag replaces the silent empty-profile return from wizard failures.
-    // Marked JsonIgnore so it never persists to disk.
     [JsonIgnore] public bool IsIncomplete { get; private set; } = false;
 
-    // Factory for an incomplete sentinel — never saved, never returned to remapper core.
     public static Profile Incomplete(string ctrl, string layout) =>
         new Profile { ControllerName = ctrl, LayoutName = layout, IsIncomplete = true };
 
+    // FIX #5: use a nullable int (int?) to cleanly distinguish "not set" from 0.
+    // Previously -1 was used as a sentinel but the property checked < 0, accepting
+    // any negative value. A nullable field is unambiguous and serializes correctly.
     [JsonPropertyName("anti_deadzone")]
-    public int AntiDeadzoneRaw { get; set; } = 0;
+    public int? AntiDeadzoneRaw { get; set; } = null;
 
-    // FIX: use -1 as the "not set" sentinel so that a legitimate value of 0
-    // (no anti-deadzone) is preserved correctly across save/load cycles.
     [JsonIgnore]
     public int AntiDeadzone
     {
-        get => AntiDeadzoneRaw < 0 ? 10000 : AntiDeadzoneRaw;
+        get => AntiDeadzoneRaw ?? 10000;
         set => AntiDeadzoneRaw = value;
     }
 }
@@ -1954,8 +2013,6 @@ static class NativeMethods
     [DllImport("winmm.dll")] public static extern uint timeBeginPeriod(uint p);
     [DllImport("winmm.dll")] public static extern uint timeEndPeriod(uint p);
 
-    // Used to unblock a hanging Console.ReadLine() on the abort thread after reconnect.
-    // Simulates pressing Enter on the console input by writing to the input handle.
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern IntPtr GetStdHandle(int nStdHandle);
 
@@ -1983,13 +2040,11 @@ static class NativeMethods
 
     public static void PostStdinNewline()
     {
-        var handle = GetStdHandle(-10); // STD_INPUT_HANDLE
+        var handle = GetStdHandle(-10);
         var records = new INPUT_RECORD[2];
-        // key down
         records[0].EventType = 1;
         records[0].KeyEvent  = new KEY_EVENT_RECORD
             { bKeyDown = 1, wRepeatCount = 1, wVirtualKeyCode = 0x0D, uChar = '\r' };
-        // key up
         records[1].EventType = 1;
         records[1].KeyEvent  = new KEY_EVENT_RECORD
             { bKeyDown = 0, wRepeatCount = 1, wVirtualKeyCode = 0x0D, uChar = '\r' };
