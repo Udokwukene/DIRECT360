@@ -70,6 +70,7 @@ static class App
 
     public static void Run()
     {
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
         _settings = AppSettings.Load();
         PollModeAtCrash = _settings.PollMode;
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; _stop = true; };
@@ -1256,7 +1257,7 @@ static class App
                 for (int i = 0; i < existing.Count; i++)
                 {
                     var p    = LoadProfile(ctrlName, existing[i]);
-                    string fav  = p?.IsFavorite == true ? "*" : " ";
+                    string fav  = p?.IsFavorite == true ? "★" : " ";
                     string dup  = p != null && FindDuplicates(p).Count > 0 ? " [!]" : "";
                     Console.WriteLine($"  [{i + 1}]{fav} {existing[i]}{dup}");
                 }

@@ -1,16 +1,12 @@
 # DIRECT360
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square&logo=windows" alt="Windows">
-  <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 10">
-  <img src="https://img.shields.io/badge/Architecture-x64-2ea44f?style=flat-square" alt="x64">
-  <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License">
+  <img src="https://raw.githubusercontent.com/Udokwukene/DIRECT360/main/icon.ico" width="120" alt="DIRECT360 Logo">
 </p>
 
-<p align="center">
-  <b>Universal DirectInput-to-XInput Controller Remapper for PC Gaming</b><br>
-  <i>Plug in any controller. Map it once. Play everything.</i>
-</p>
+<p align="center"><b>Universal DirectInput-to-XInput Controller Remapper for PC Gaming</b></p>
+
+<p align="center"><i>Plug in any controller. Map it once. Play everything.</i></p>
 
 ---
 
@@ -18,7 +14,7 @@
 
 **DIRECT360** is a lightweight, console-based controller remapper for Windows that converts virtually any DirectInput gamepad into a virtual **Xbox 360 controller** — the standard that nearly every PC game supports out of the box.
 
-Whether you have a cheap generic USB joystick, a PlayStation 3/4/5 controller, DIRECT360 makes it work with your games without touching a single config file.
+Whether you have a cheap generic USB joystick, a PlayStation 3/4/5 controller, or an Xbox controller showing up as DirectInput, DIRECT360 makes it work with your games without touching a single config file.
 
 ---
 
@@ -26,15 +22,16 @@ Whether you have a cheap generic USB joystick, a PlayStation 3/4/5 controller, D
 
 | Feature | Description |
 |---------|-------------|
-| **Universal Compatibility** | Works with Xbox, PS3, PS4, PS5 (wired & Bluetooth), and generic USB joysticks |
-| **Interactive Wizard** | Step-by-step button mapping — no manual editing, no XML, no hassle |
-| **Multi-Controller** | Run up to 4 controllers simultaneously, each with independent profiles |
-| **Smart Profiles** | Per-controller layouts with favorites, notes, recent history, and quick-load |
+| **Universal Compatibility** | Works with all generic USB controllers both wired and wireless |
+| **Interactive Wizard** | Step-by-step button & axis mapping — no manual editing, no XML, no hassle |
+| **Multi-Controller Setups** | Create persistent, named setups for 2–4 players. Save, load, and manage them independently |
+| **Smart Profiles** | Per-controller layouts with favorites ★, notes, last-used memory, and quick-load |
 | **3 Polling Modes** | Eco (~100Hz), Balanced (~200Hz), Performance (~500Hz) — pick your trade-off |
-| **Game Launcher** | Auto-launch your game EXE when loading a layout |
-| **Auto-Reconnect** | Controller unplugged mid-game? It waits and resumes automatically |
-| **Export / Import** | Share your layouts with friends or back them up |
-| **Crash Logger** | Unhandled exceptions are caught and saved to `crash.log` |
+| **Game Launcher** | Attach a game EXE to any layout or multi-setup and launch it automatically |
+| **Auto-Reconnect** | Controller unplugged mid-game? Waits and resumes automatically |
+| **Live Validation** | Loading a layout validates it against the real controller and warns about missing/duplicate mappings |
+| **Export / Import** | Share your layouts with friends or back them up as JSON |
+| **Crash Logger** | Unhandled exceptions are caught, cleaned up, and saved to `crash.log` |
 
 ---
 
@@ -59,6 +56,7 @@ Head to the [**Releases**](https://github.com/Udokwukene/DIRECT360/releases) pag
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 
 ### Build
+
 ```bash
 git clone https://github.com/Udokwukene/DIRECT360.git
 cd DIRECT360
@@ -92,9 +90,12 @@ The compiled binary will be in the `dist/` folder.
 1. **Install ViGEmBus** and reboot.
 2. **Plug in your controller(s).**
 3. **Run `DIRECT360.exe`.**
-4. Follow the on-screen wizard to map your buttons and axes.
-5. Save your layout and select it from the menu.
-6. Launch your game and play.
+4. Choose your mode:
+   - `[1]` **Single Controller** — one pad, one profile.
+   - `[2]` **Multi-Controller** — create or load a named setup for multiple pads.
+5. Follow the on-screen wizard to map your buttons and axes.
+6. Save your layout and select it from the menu.
+7. Launch your game and play.
 
 ### Controls While Running
 | Key | Action |
@@ -104,47 +105,35 @@ The compiled binary will be in the `dist/` folder.
 
 ---
 
-## Multi-Controller Setup
+## Mode Selection
 
-When multiple controllers are detected, DIRECT360 asks which ones to use:
+When you start DIRECT360 you’ll see:
 
 ```
-  [A] All  |  [S] Choose specific  |  [1-4] One only
+  [1] Single Controller Mode
+  [2] Multi-Controller Mode
+  [S] Settings
 ```
 
-- **`A`** — Use all detected controllers
-- **`S`** — Pick specific ones (e.g. `1 3` for Players 1 and 3)
-- **`1-4`** — Use only that controller
-
-Each player gets their own profile slot. If all selected controllers have a "last used" layout, you can quick-load everything with **`L`**.
+- **`1`** — Pick one controller and manage its layouts.
+- **`2`** — Create persistent **Multi-Setups** for couch co-op / local multiplayer.
+- **`S`** — Change global polling mode (Eco / Balanced / Performance).
 
 ---
 
-## Wizard Controls
+## Single Controller Mode
 
-During the setup wizard, you can navigate with keyboard shortcuts:
-
-| Key | Action |
-|-----|--------|
-| `B` | Go back to the previous step |
-| `R` | Redo the current step |
-
-If your controller disconnects during the wizard, reconnect it and the wizard will resume from where you left off. Press `Enter` to abort instead.
-
----
-
-## Profile Menu Options
+### Layout Menu
 
 ```
   [N]  New layout (wizard)
-  [P]  PS smart default (DS4/DS5 preset)
-  [L]  Quick load last used
   [1-n] Load a saved layout
-  [Recent1-3] Load recent layout
+  [L]  Quick load last used
 
   [E]  Edit layout
   [T]  Test layout
   [A]  Adjust sensitivity
+  [Z]  Adjust deadzone
   [G]  Set game launcher
   [X]  Export layout
   [I]  Import layout
@@ -152,26 +141,105 @@ If your controller disconnects during the wizard, reconnect it and the wizard wi
   [D]  Delete layout
 
   [S]  Settings
+  [B]  Back
 ```
+
+**Favorites & Duplicates**
+- Favorited layouts are marked with `★` and sorted to the top.
+- If two mappings share the same physical button index, a `[!]` warning appears.
+- When loading, the app validates the layout against the real controller and reports errors/warnings. You can still force-load if you choose.
 
 ---
 
-## Project Structure
+## Multi-Controller Mode
+
+DIRECT360 can run **up to 4 controllers simultaneously**, each with its own independent profile.
+
+### Multi-Setup Menu
 
 ```
-DIRECT360/
-├── Program.cs              # Main application
-├── DIRECT360.csproj        # Project file
-├── rebuild.bat             # Full rebuild
-├── play.bat                # Quick build & run
-├── icon.ico                # Application icon
-├── profiles/               # Saved layouts (auto-created)
-│   ├── _settings.json
-│   ├── _recent.json
-│   └── <ControllerName>/
-│       └── <LayoutName>.json
-└── crash.log               # Auto-generated on crash
+  [N] New Setup
+  [1-n] Load Setup
+  [B] Back to Main Menu
 ```
+
+### Creating a Setup
+
+1. Choose `[N]` — all currently plugged-in controllers are detected.
+2. For each controller, choose:
+   - `[N]` Create a new layout via the wizard.
+   - `[E]` Use an existing layout already saved for that controller.
+3. The setup is saved as a named JSON file in `profiles/MultiSetups/`.
+
+### Managing a Setup
+
+```
+  [R] Run Now
+  [E] Edit Controller
+  [T] Test Controller
+  [A] Adjust Sensitivity
+  [Z] Adjust Deadzone
+  [G] Set Game
+  [D] Delete Setup
+  [B] Back
+```
+
+- **Run** — launches all configured controllers in parallel with a shared virtual bus.
+- **Edit / Test / Adjust** — per-controller maintenance without leaving the session.
+- **Set Game** — attach an EXE to the whole setup; you’ll be prompted to launch it before remapping starts.
+
+> ⚠️ If a controller from the setup is missing when you load it, a warning is shown and that player is skipped until reconnected.
+
+---
+
+## Setup Wizard
+
+The wizard walks you through every input:
+
+```
+  1/18 [ A ]     → press the matching button on your controller
+  ...
+  11/18 [ LEFT STICK UP ]    → move stick UP, release
+  ...
+```
+
+### Wizard Controls
+| Key | Action |
+|-----|--------|
+| `B` | Go back to the previous step |
+| `R` | Redo the current step |
+
+If your controller disconnects during the wizard, reconnect it and the wizard will **resume from where you left off**. Press `Enter` to abort instead.
+
+---
+
+## Edit Layout
+
+Inside `[E] Edit Layout` you can:
+
+| Key | Action |
+|-----|--------|
+| `1-n` | Remap that entry by pressing a new button on the controller |
+| `S` | Swap two entries (enter two numbers, e.g. `1 2`) |
+| `F` | Toggle favorite on/off |
+| `N` | Edit a text note for the layout |
+| `Enter` | Back |
+
+Duplicate mappings are highlighted with `[!dup]` so you can spot conflicts instantly.
+
+---
+
+## Test Layout
+
+`[T] Test Layout` opens a live view:
+
+```
+  btn  2 → Xbox [ A ]
+  btn  5 → Xbox [ LB ]
+  ...
+```
+
+Press buttons on your physical controller to see which Xbox mapping fires. Press `Escape` or `M` to exit.
 
 ---
 
@@ -183,13 +251,14 @@ DIRECT360/
 | **Balanced** | ~200 Hz | Low | Most gaming (default) |
 | **Performance** | ~500 Hz | Moderate | Competitive play, fast PCs |
 
-Change modes anytime via **`[S] Settings`** in the layout menu.
+Change modes anytime via `[S] Settings`.
 
 ---
 
-## Stick Sensitivity
+## Stick Sensitivity & Deadzone
 
-During the wizard or via **`[A] Adjust sensitivity`**, you can tune how responsive your analog sticks feel:
+### Sensitivity (`[A]`)
+Controls how much of the outer stick range is used. A higher value means the stick reaches full tilt sooner.
 
 | Setting | Range | Feel |
 |---------|-------|------|
@@ -197,7 +266,34 @@ During the wizard or via **`[A] Adjust sensitivity`**, you can tune how responsi
 | **Normal** | 8,000 – 11,999 | Balanced (default: 10,000) |
 | **Firm** | 4,000 – 7,999 | Needs deliberate push |
 
-You can also set a custom **inner deadzone** (0–30%) to eliminate stick drift.
+### Inner Deadzone (`[Z]`)
+Eliminates stick drift by ignoring small inputs near the center.
+
+- **Range:** 0 – 30%
+- **Default:** 8%
+- Set per stick (Left / Right) independently.
+
+---
+
+## Project Structure
+
+```
+DIRECT360/
+├── Program.cs              # Main application (single-file)
+├── DIRECT360.csproj        # Project file
+├── rebuild.bat             # Full rebuild
+├── play.bat                # Quick build & run
+├── icon.ico                # Application icon
+├── profiles/               # Saved data (auto-created)
+│   ├── _settings.json      # Global poll mode
+│   ├── _recent.json        # Recent layouts
+│   ├── MultiSetups/        # Named multi-controller sessions
+│   │   └── <SetupName>.json
+│   └── <ControllerName>/
+│       ├── _last_used.txt
+│       └── <LayoutName>.json
+└── crash.log               # Auto-generated on crash
+```
 
 ---
 
@@ -207,10 +303,11 @@ You can also set a custom **inner deadzone** (0–30%) to eliminate stick drift.
 |---------|----------|
 | `ERROR: ViGEmBus driver not found!` | Install [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) and reboot |
 | Controller not detected | Unplug and reconnect, then press `Enter` at the "No controllers" prompt |
-| Buttons feel stuck or unresponsive | Make sure you are using the latest build; SharpDX buffer reuse was fixed in v2.0 |
+| Buttons feel stuck or unresponsive | Make sure you are using the latest build; buffer-reuse and COM-race issues were fixed in recent releases |
 | High CPU usage / laptop getting hot | Switch to **Eco** mode in Settings |
 | Multi-controller crashes | Ensure all controllers are plugged in before starting; avoid hot-plugging during active remap |
 | Build fails with `CS1061` | You are using an outdated source file. Pull the latest `Program.cs` from this repo |
+| Layout shows `[!]` or `ERR` on load | The profile has duplicate or out-of-range button indices. Use `[E] Edit` to fix |
 
 ---
 
@@ -254,7 +351,6 @@ This project is licensed under the [MIT License](LICENSE).
 
 ---
 
-<p align="center">
-  <i>Made with frustration over games that only support Xbox controllers.</i><br>
-  <b>Now everything just works.</b>
-</p>
+_Made with frustration over games that only support Xbox controllers._
+
+**Now everything just works.**
