@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DIRECT360")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("2.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("2.0.0+ebebcb611b4472280d9044cc60b1b81a2f4e8999")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("2.0.0+bcac6712b92bc25c3c05827f64e2b4831529089a")]
 [assembly: System.Reflection.AssemblyProductAttribute("DIRECT360")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DIRECT360")]
 [assembly: System.Reflection.AssemblyVersionAttribute("2.0.0.0")]

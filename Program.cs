@@ -377,6 +377,28 @@ static class App
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            long lastKeyCheckMs = 0;
+            long lastReportMs = 0;
+            
+            // Pin this thread to a CPU core to minimize context switching and latency
+            try
+            {
+                var proc = System.Diagnostics.Process.GetCurrentProcess();
+                var affinity = proc.ProcessorAffinity;
+                // Use the lowest available core to avoid contention with other processes
+                var threads = proc.Threads;
+                var currentThread = threads.Cast<System.Diagnostics.ProcessThread>()
+                    .FirstOrDefault(t => t.Id == System.Threading.Thread.CurrentThread.ManagedThreadId);
+                if (currentThread != null && affinity != IntPtr.Zero)
+                {
+                    // Set ProcessorAffinity to first available core
+                    int coreCount = Environment.ProcessorCount;
+                    proc.ProcessorAffinity = new IntPtr(1 << (coreCount > 1 ? 1 : 0)); // Use core 1 if available, else core 0
+                }
+            }
+            catch { /* CPU affinity setting failed – continue without it */ }
+            
             while (!cts.IsCancellationRequested && !_stop)
             {
                 JoystickState state;
@@ -386,16 +408,25 @@ static class App
                     catch { exitReason = "disconnected"; break; }
                 }
 
-                bool[] currentBtns = state.Buttons.Length > 0 ? (bool[])state.Buttons.Clone() : Array.Empty<bool>();
+                bool[] currentBtns = state.Buttons;
                 bool[] snapshotBtns = prevBtns;
                 int    numBtns      = currentBtns.Length;
                 bool   changed      = false;
 
-                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.M)
+                // Only check console input every 50ms to reduce overhead
+                if (sw.ElapsedMilliseconds - lastKeyCheckMs >= 50)
                 {
-                    Console.WriteLine("\n  Returning to menu...");
-                    exitReason = "menu"; break;
+                    lastKeyCheckMs = sw.ElapsedMilliseconds;
+                    if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.M)
+                    {
+                        Console.WriteLine("\n  Returning to menu...");
+                        exitReason = "menu"; break;
+                    }
                 }
+                
+                // Resize prevBtns if needed (handle device changes)
+                if (prevBtns.Length != numBtns)
+                    prevBtns = new bool[numBtns];
 
                 // -- Buttons --
                 foreach (var (idx, btn) in btnMap)
@@ -455,9 +486,30 @@ static class App
                 {
                     try { gamepad.SubmitReport(); }
                     catch { /* ViGEm device removed – ignore */ }
+                    lastReportMs = sw.ElapsedMilliseconds;
+                }
+                else
+                {
+                    // Always send a report every 10ms to ensure games get consistent updates
+                    long currentMs = sw.ElapsedMilliseconds;
+                    if (currentMs - lastReportMs >= 10)
+                    {
+                        try { gamepad.SubmitReport(); }
+                        catch { /* ViGEm device removed – ignore */ }
+                        lastReportMs = currentMs;
+                    }
                 }
 
-                Thread.Sleep(sleepMs);
+                // Use high-precision timing instead of Thread.Sleep
+                long targetMs = sw.ElapsedMilliseconds + sleepMs;
+                while (sw.ElapsedMilliseconds < targetMs)
+                {
+                    long remaining = targetMs - sw.ElapsedMilliseconds;
+                    if (remaining > 1)
+                        System.Threading.Thread.Sleep(0);  // Yield without busy-waiting
+                    else if (remaining > 0)
+                        System.Threading.Thread.Yield();   // Minimal yield for sub-ms precision
+                }
             }
         }
         finally
@@ -1896,19 +1948,25 @@ static class App
                 tasks.Add(Task.Run(() => RunRemapperCore(pad.Pad, profile, client, cts)));
         }
 
+        var keyCheckSw = System.Diagnostics.Stopwatch.StartNew();
         while (!_stop && !tasks.All(t => t.IsCompleted))
         {
-            if (Console.KeyAvailable)
+            // Check console input only every 100ms to minimize lock contention with polling threads
+            if (keyCheckSw.ElapsedMilliseconds >= 100)
             {
-                var key = Console.ReadKey(true);
-                if (key.Key == ConsoleKey.M)
+                keyCheckSw.Restart();
+                if (Console.KeyAvailable)
                 {
-                    Console.WriteLine("\n  Returning to menu...");
-                    foreach (var cts in ctsList) cts.Cancel();
-                    break;
+                    var key = Console.ReadKey(true);
+                    if (key.Key == ConsoleKey.M)
+                    {
+                        Console.WriteLine("\n  Returning to menu...");
+                        foreach (var cts in ctsList) cts.Cancel();
+                        break;
+                    }
                 }
             }
-            Thread.Sleep(50);
+            System.Threading.Thread.Sleep(10);
         }
 
         if (_stop) foreach (var cts in ctsList) cts.Cancel();
